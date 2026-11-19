@@ -1,4 +1,34 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4) & Modul KRS (Minggu 5–6)
+# Sistem Informasi Akademik Mini (SEVIMA-Mini) — Desain UML (Minggu 1) & Implementasi PMB/KRS
+
+## Materi 1 — Minggu 1: Desain Sistem Akademis dengan UML & AI
+
+Dokumen dan diagram fondasi arsitektur SEVIMA-Mini sesuai template submission:
+
+```text
+├── diagrams/
+│   └── class-diagram.mmd            # Class Diagram UML (Mermaid) tervalidasi & SOLID
+├── prompts/
+│   └── ai-usage-log.md              # 6 iterasi prompt terbaik, before-after AI vs revisi manual & OPAR
+├── docs/
+│   ├── ADR-architecture-decisions.pdf   # Architecture Decision Record (2 halaman PDF)
+│   └── PANDUAN_VIDEO_MINGGU_1.md        # Panduan rekaman video tutorial YouTube & Viva
+└── README.md
+```
+
+### Tautan Cepat Artefak Minggu 1
+- **Class Diagram (Mermaid):** [diagrams/class-diagram.mmd](diagrams/class-diagram.mmd)
+- **AI Usage Documentation & OPAR:** [prompts/ai-usage-log.md](prompts/ai-usage-log.md)
+- **Architecture Decision Record (PDF):** [docs/ADR-architecture-decisions.pdf](docs/ADR-architecture-decisions.pdf)
+
+### Ringkasan Desain Class Diagram
+- **Hierarki Abstract `User`:** `Mahasiswa`, `Dosen`, `Admin`, `CalonMahasiswa` (`#id`, `#username`, `-passwordHash`, `#email`, `+tampilkanDashboard()*`).
+- **Entitas Inti:** `ProgramStudi`, `Course` (self-association prasyarat), `Schedule`, `KRS`, `Enrollment`, `Grade`, dan `Payment`.
+- **Relasi Tervalidasi:** Inheritance (`<|--`), Composition (`*--`: `Course*--Schedule`, `KRS*--Enrollment`, `Enrollment*--Grade`), Aggregation (`o--`: `ProgramStudi o-- Dosen`, `ProgramStudi o-- Mahasiswa`), kardinalitas eksplisit, visibility modifier (`+`, `-`, `#`), bebas *God Object* & bebas *circular dependency*.
+- **Service Layer (SOLID — SRP, OCP, DIP):** `KRSManager`, `KRSValidator` (`<<interface>>`), `TranscriptService`, dan `NotificationService`.
+
+---
+
+## Implementasi Modul PMB (Minggu 3–4) & Modul KRS (Minggu 5–6)
 
 Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, serta **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**:
 
