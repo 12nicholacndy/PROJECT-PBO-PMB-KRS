@@ -1,66 +1,188 @@
 classDiagram
-    %% Draft v1 dari prompt awal (sebelum validasi relasi, visibility, Payment, dan refactor SOLID)
+    %% =========================================================================
+    %% SEVIMA-Mini — Final Class Diagram (Minggu 1: Validated & SOLID Refactored)
+    %% Mencakup: Hierarki User, 5 Class Inti (+ ProgramStudi & KRS),
+    %% Visibility Modifiers (+, -, #), Kardinalitas, Inheritance, Composition,
+    %% Aggregation, Self-Association, dan Service terpisah sesuai SRP.
+    %% =========================================================================
+
+    %% --- 1. Hierarki User (Inheritance & Abstraction) ---
     class User {
-        id: int
-        username: string
-        password: string
-        email: string
-        login()
-        logout()
+        <<abstract>>
+        #id: int
+        #username: str
+        -passwordHash: str
+        #email: str
+        #namaLengkap: str
+        +login(username: str, password: str) bool
+        +logout() void
+        +tampilkanDashboard()* dict
     }
 
     class Mahasiswa {
-        nim: string
-        ipk: float
-        isiKRS()
-        validasiKRS()
-        cetakTranskripPDF()
-        kirimEmailTagihan()
+        -nim: str
+        -semesterAktif: int
+        -ipk: float
+        +getNIM() str
+        +getIPK() float
+        +isiKRS(semester: str) KRS
+        +tampilkanDashboard() dict
     }
 
     class Dosen {
-        nidn: string
-        approveKRS()
-        inputNilai()
+        -nidn: str
+        -fakultas: str
+        +getNIDN() str
+        +approveKRS(krs: KRS) void
+        +revisiKRS(krs: KRS, catatan: str) void
+        +inputNilai(enrollment: Enrollment, nilai: float) Grade
+        +tampilkanDashboard() dict
     }
 
     class Admin {
-        verifikasiPMB()
+        -kodeAdmin: str
+        +verifikasiBerkas(calon: CalonMahasiswa) bool
+        +approvePMB(calon: CalonMahasiswa) str
+        +rejectPMB(calon: CalonMahasiswa) void
+        +tampilkanDashboard() dict
     }
 
     class CalonMahasiswa {
-        noPendaftaran: string
-        status: string
-        daftarPMB()
+        -noPendaftaran: str
+        -noHp: str
+        -tanggalLahir: date
+        -alamat: str
+        -statusSeleksi: str
+        -nim: str
+        +daftarPMB() void
+        +cekStatus() str
+        +tampilkanDashboard() dict
+    }
+
+    %% --- 2. Entitas Akademik Inti (Domain Models) ---
+    class ProgramStudi {
+        -id: int
+        -kode: str
+        -nama: str
+        -fakultas: str
+        +getKode() str
+        +getNama() str
     }
 
     class Course {
-        kode: string
-        nama: string
-        sks: int
-    }
-
-    class Enrollment {
-        semester: string
-        status: string
+        -kodeMK: str
+        -nama: str
+        -sks: int
+        +getKodeMK() str
+        +getSKS() int
+        +getPrasyarat() List~Course~
+        +isValidSKS() bool
     }
 
     class Schedule {
-        hari: string
-        jam: string
-        ruangan: string
+        -id: int
+        -hari: int
+        -jamMulai: time
+        -jamSelesai: time
+        -ruangan: str
+        +isBentrok(other: Schedule) bool
+        +getInfoJadwal() str
+    }
+
+    class KRS {
+        -id: int
+        -semester: str
+        -status: str
+        -version: int
+        -submittedAt: datetime
+        -approvedAt: datetime
+        +cekTransisi(target: str, aktor: str) void
+        +transition(target: str, aktor: str) void
+        +hitungTotalSKS() int
+    }
+
+    class Enrollment {
+        -id: int
+        -semester: str
+        -status: str
+        +getCourse() Course
+        +getGrade() Grade
+        +isLulus() bool
     }
 
     class Grade {
-        nilaiAngka: float
-        nilaiHuruf: string
+        -id: int
+        -nilaiAngka: float
+        -nilaiHuruf: str
+        -bobot: float
+        +konversiHuruf() str
+        +isLulusPrasyarat() bool
     }
 
+    class Payment {
+        -id: int
+        -semester: str
+        -jumlah: Decimal
+        -tanggalBayar: datetime
+        -statusBayar: str
+        +bayar(nominal: Decimal) void
+        +isLunas() bool
+    }
+
+    %% --- 3. Lapisan Service & Validasi (SOLID: SRP, OCP, DIP) ---
+    class KRSValidator {
+        <<interface>>
+        +setNext(next: KRSValidator) KRSValidator
+        +validate(krs: KRS, course: Course) bool
+    }
+
+    class KRSManager {
+        -validatorChain: KRSValidator
+        +addCourse(nim: str, kodeMK: str, semester: str) KRS
+        +removeCourse(nim: str, kodeMK: str, semester: str) KRS
+        +validateKRS(nim: str, semester: str) List~str~
+        +submitKRS(nim: str, semester: str) KRS
+    }
+
+    class TranscriptService {
+        +hitungIPS(mahasiswa: Mahasiswa, semester: str) float
+        +hitungIPK(mahasiswa: Mahasiswa) float
+        +generateTranskrip(mahasiswa: Mahasiswa) dict
+    }
+
+    class NotificationService {
+        +kirimNotifikasi(user: User, judul: str, pesan: str) void
+    }
+
+    %% --- Relasi Inheritance (is-a) ---
     User <|-- Mahasiswa
     User <|-- Dosen
     User <|-- Admin
     User <|-- CalonMahasiswa
-    Mahasiswa --> Enrollment
-    Course --> Enrollment
-    Course --> Schedule
-    Mahasiswa --> Grade
+
+    %% --- Relasi Aggregation (memiliki lemah: bagian tetap hidup jika wadah hilang) ---
+    ProgramStudi "1" o-- "1..*" Dosen : menaungi
+    ProgramStudi "1" o-- "0..*" Mahasiswa : menaungi
+
+    %% --- Relasi Composition (memiliki kuat: bagian ikut hilang jika wadah dihapus) ---
+    Course "1" *-- "1..*" Schedule : memiliki jadwal
+    KRS "1" *-- "1..*" Enrollment : berisi detail
+    Enrollment "1" *-- "0..1" Grade : menghasilkan nilai
+
+    %% --- Relasi Self-Association (Prasyarat Mata Kuliah) ---
+    Course "0..*" --> "0..*" Course : prasyarat
+
+    %% --- Relasi Association (antar domain) ---
+    Mahasiswa "1" --> "0..*" KRS : menyusun
+    Dosen "1" --> "0..*" KRS : membimbing PA
+    Enrollment "0..*" --> "1" Course : mengambil
+    Mahasiswa "1" --> "0..*" Payment : memiliki tagihan
+    Admin "1" --> "0..*" CalonMahasiswa : memverifikasi
+    CalonMahasiswa "0..1" ..> "0..1" Mahasiswa : dikonversi saat lulus PMB
+
+    %% --- Relasi Service Layer (memecah God Object, tanpa circular dependency) ---
+    KRSManager "1" --> "1" KRSValidator : memvalidasi dengan
+    KRSManager ..> KRS : mengelola
+    KRSManager ..> NotificationService : memicu
+    TranscriptService ..> Mahasiswa : menghitung IPK
+    TranscriptService ..> Enrollment : membaca nilai
