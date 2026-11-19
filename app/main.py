@@ -6,8 +6,8 @@ from app.routers.pmb import router as pmb_router
 
 app = FastAPI(
     title="Sistem Penerimaan Mahasiswa Baru",
-    description="API PMB — implementasi tugas minggu ketiga",
-    version="1.0.0",
+    description="API PMB — implementasi modul PMB (Minggu 3 & 4)",
+    version="1.1.0",
 )
 
 

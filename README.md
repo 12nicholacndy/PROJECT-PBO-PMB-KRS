@@ -1,63 +1,65 @@
-# Sistem PMB — Implementasi Minggu 3
+# Sistem PMB — Implementasi Modul PMB (Minggu 3 & 4)
 
-Project ini mengimplementasikan ruang lingkup Minggu 3:
-- Tabel `calon_mahasiswa`, `program_studi`, dan `jalur_masuk`.
-- SQLAlchemy 2.0 dengan `Mapped` dan `mapped_column`.
-- Primary key, foreign key, unique constraint, check constraint, dan nilai default.
-- Validasi request menggunakan Pydantic.
-- Migrasi database menggunakan Alembic.
-- Endpoint `POST /api/pmb/register` dengan status awal `pending`.
-- Email duplikat ditolak dengan HTTP 409.
-- Input tidak valid dan referensi yang tidak ditemukan ditolak dengan HTTP 400.
-- Dokumentasi API tersedia melalui Swagger di `/docs`.
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 dan Minggu 4:
+- Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
+- Primary key, foreign key, unique constraint, check constraint, enum status (`pending`, `approved`, `rejected`), dan nilai default.
+- Migrasi database menggunakan Alembic (`0001_create_pmb` → `bd324e9e0e78`).
+- Endpoint lengkap:
+  - `POST /api/pmb/register` — mendaftarkan pendaftar baru dengan status `pending` (201, 400, 409).
+  - `PUT /api/pmb/approve/{pendaftar_id}` — menyetujui pendaftar dan menghasilkan NIM secara idempoten (200, 400, 404, 409).
+  - `PUT /api/pmb/reject/{pendaftar_id}` — menolak pendaftar berstatus `pending` (200, 404, 409).
+  - `GET /api/pmb/status/{pendaftar_id}` — mengecek status dan NIM pendaftar tanpa mengekspos data pribadi sensitif (200, 404).
+  - `GET /api/pmb/stats` — statistik jumlah pendaftar per status, program studi, dan jalur masuk menggunakan SQL `GROUP BY` + `OUTER JOIN` (200).
+- Dokumentasi API otomatis melalui Swagger UI di `/docs` dan ReDoc di `/redoc`.
+- Pengujian otomatis (`pytest` + `pytest-cov`) dengan coverage > 80%.
+
+---
+
+## Keputusan Desain Minggu 4
+
+1. **Format NIM (11 digit angka tanpa strip):** `YYYY` + `kode_prodi (3 digit)` + `nomor_urut (4 digit zero-padded)`, contoh `20260010001`.
+   - Alasan: mudah disimpan, diurutkan, dan divalidasi dengan regex `^\d{4}\d{3}\d{4}$`.
+   - Nomor urut dihitung ulang per kombinasi `(tahun, kode_prodi)` dan dibatasi maksimal `9999`.
+2. **Idempotency pada `PUT /api/pmb/approve/{id}`:**
+   - Memanggil approve pada pendaftar yang sudah berstatus `approved` mengembalikan **HTTP 200** dengan NIM dan `approved_at` lama, tanpa memanggil generator NIM dan tanpa menaikkan counter `nim_sequence`.
+   - Memanggil approve pada pendaftar berstatus `rejected` ditolak dengan **HTTP 409 Conflict** (status akhir tidak dapat dibalik).
+   - Memanggil reject pada pendaftar berstatus `approved` ditolak dengan **HTTP 409 Conflict**.
+3. **Penanganan Race Condition & Transaksi:**
+   - Pengambilan baris `CalonMahasiswa` dan `NIMSequence` memakai `with_for_update()` (row-level lock di MySQL/PostgreSQL, bukan `threading.Lock` Python agar aman multi-worker).
+   - `generate_nim()` hanya menjalankan `db.flush()` dan **tidak** melakukan `commit()` sendiri; seluruh perubahan dikomit sekali di akhir transaksi `approve_pendaftar()`.
+   - `UniqueConstraint` pada `calon_mahasiswa.nim` dan primary key gabungan `(tahun, kode_prodi)` pada `nim_sequence` dipadukan dengan retry (maks. 3 kali) pada `IntegrityError` sebagai jaring pengaman.
+4. **Limitasi Pengujian Lokal (SQLite vs MySQL):**
+   - Pengujian otomatis (`pytest`) memakai SQLite in-memory yang mengabaikan klausa `FOR UPDATE`. Perilaku row-level lock dan uji beban konkuren nyata perlu diverifikasi pada database MySQL/PostgreSQL.
+
+---
 
 ## 1. Persiapan (Windows / PowerShell)
 
-Buka folder project ini di VS Code, lalu jalankan:
-
 ```powershell
-python -m venv venv
+py -3.12 -m venv venv
 venv\Scripts\activate
 python -m pip install -r requirements.txt
 ```
 
-## 2. Migrasi database
+*(Jika menjalankan langsung tanpa `venv`, gunakan `py -3.12 -m ...`.)*
 
-Untuk membuat atau memperbarui skema database:
+## 2. Migrasi Database
 
 ```powershell
-alembic upgrade head
-alembic current --verbose
+py -3.12 -m alembic upgrade head
+py -3.12 -m alembic current --verbose
+py -3.12 -m alembic check
 ```
-
-Jangan menjalankan `alembic downgrade -1` pada database yang berisi data penting karena migrasi awal menghapus tabel PMB.
-
-Jika dosen meminta bukti pengujian downgrade, lakukan hanya pada salinan project/database khusus pengujian yang tidak berisi data penting:
-1. Salin seluruh folder project ke folder sementara.
-2. Dari folder sementara, aktifkan virtual environment dan pasang requirements.
-3. Jalankan `alembic downgrade -1`.
-4. Pastikan tabel PMB terhapus pada database salinan.
-5. Jalankan `alembic upgrade head` dan pastikan tabel terbentuk kembali.
-
-Jangan lakukan uji downgrade pada database project utama.
 
 ## 3. Jalankan API
 
 ```powershell
-python -m uvicorn app.main:app --reload
+py -3.12 -m uvicorn app.main:app --reload
 ```
 
-Buka `http://127.0.0.1:8000/docs` untuk melihat Swagger.
+Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI.
 
-## 4. Data referensi
-
-Endpoint register membutuhkan `program_studi_id` dan `jalur_masuk_id` yang sudah tersedia. Untuk menambahkan data referensi pada database pengembangan, jalankan Python:
-
-```powershell
-python
-```
-
-Kemudian:
+## 4. Data Referensi (Seed Awal)
 
 ```python
 from app.database import SessionLocal
@@ -73,65 +75,12 @@ db.add_all([
 ])
 db.commit()
 db.close()
-exit()
 ```
 
-Jalankan seed hanya jika data referensi belum tersedia agar tidak menimbulkan duplikasi.
-
-## 5. Uji endpoint register
-
-Di Swagger, pilih `POST /api/pmb/register` dan gunakan contoh:
-
-```json
-{
-  "nama_lengkap": "Budi Santoso",
-  "email": "budi@example.com",
-  "no_hp": "081234567890",
-  "tanggal_lahir": "2007-04-12",
-  "alamat": "Cibinong, Bogor",
-  "program_studi_id": 1,
-  "jalur_masuk_id": 1
-}
-```
-
-Hasil yang diharapkan:
-- Pendaftaran berhasil: HTTP 201 dan status `pending`.
-- Email duplikat: HTTP 409.
-- Input tidak valid: HTTP 400.
-- Program studi atau jalur masuk tidak ditemukan: HTTP 400.
-
-## 6. Jalankan test otomatis
+## 5. Jalankan Test Otomatis & Cek Coverage (Minimal 80%)
 
 ```powershell
-python -m pytest -v
+py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil pengujian yang tercatat sebelum paket diperbaiki adalah 6 test passed. Jalankan kembali perintah di atas setelah mengekstrak paket final untuk memverifikasi lingkungan lokal.
-
-## 7. Git dan kontribusi
-
-Jika instruksi dosen meminta bukti commit Git, jalankan dari folder project utama:
-
-```powershell
-git init
-git add .
-git commit -m "Implement PMB week 3 with AI assistance"
-```
-
-Jika Git meminta identitas, atur nama dan email Git milik sendiri terlebih dahulu. Pastikan commit berhasil dengan:
-
-```powershell
-git log -1 --oneline
-```
-
-Riwayat Git tidak disertakan dalam ZIP ini; simpan bukti commit atau repository sesuai cara pengumpulan yang diminta dosen.
-
-## 8. AI Usage Log
-
-Ringkasan bantuan AI dan pemeriksaan yang dilakukan dicatat pada `AI_USAGE_LOG.md`. Periksa kembali dan sesuaikan catatan tersebut jika ada bantuan atau pengujian tambahan yang dilakukan setelah tanggal yang tercantum.
-
-## Catatan ruang lingkup
-
-- Status PMB yang disediakan adalah `pending`, `approved`, dan `rejected`. Endpoint register pada Minggu 3 membuat pendaftar dengan status `pending`.
-- Kolom NIM nullable dan unik disiapkan untuk proses minggu berikutnya; generator NIM dan proses approval tidak termasuk endpoint register Minggu 3.
-- Validasi pola nomor HP dilakukan di aplikasi menggunakan Pydantic.
+Hasil verifikasi terakhir: **32 passed**, total coverage **95.09%** (melebihi syarat minimum 80%).

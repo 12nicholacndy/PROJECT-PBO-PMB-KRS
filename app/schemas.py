@@ -1,5 +1,5 @@
 import re
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -47,3 +47,37 @@ class RegisterResponse(BaseModel):
     jalur_masuk_id: int
     status: str
     nim: str | None
+
+
+class ApproveResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nama_lengkap: str
+    email: EmailStr
+    program_studi_id: int
+    jalur_masuk_id: int
+    status: str
+    nim: str | None
+    approved_at: datetime | None
+
+
+class StatusResponse(BaseModel):
+    """Output cek status publik — hanya kolom yang relevan tanpa data pribadi sensitif."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nama_lengkap: str
+    program_studi_id: int
+    jalur_masuk_id: int
+    status: str
+    nim: str | None
+    approved_at: datetime | None
+
+
+class StatsResponse(BaseModel):
+    total: int
+    per_status: dict[str, int]
+    per_program_studi: dict[str, int]
+    per_jalur_masuk: dict[str, int]
