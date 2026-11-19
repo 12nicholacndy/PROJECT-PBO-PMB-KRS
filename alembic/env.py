@@ -10,8 +10,10 @@ from app.models import (  # noqa: F401
     JalurMasuk,
     KRS,
     KRSDetail,
+    KRSLog,
     MataKuliah,
     NIMSequence,
+    Notifikasi,
     ProgramStudi,
     prerequisite_table,
 )

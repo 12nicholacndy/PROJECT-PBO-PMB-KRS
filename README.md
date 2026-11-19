@@ -1,11 +1,11 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4) & Modul KRS (Minggu 5)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4) & Modul KRS (Minggu 5–6)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, serta **Modul Kartu Rencana Studi (KRS) — Minggu 5 Bagian 1**:
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, serta **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**:
 
 ### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
 - Primary key, foreign key, unique constraint, check constraint, enum status (`pending`, `approved`, `rejected`), dan nilai default.
-- Migrasi database menggunakan Alembic (`0001_create_pmb` → `bd324e9e0e78` → `89b36c3f41cc`).
+- Migrasi database menggunakan Alembic (`0001_create_pmb` → `bd324e9e0e78` → `89b36c3f41cc` → `c6d2d3fb9b6d`).
 - Endpoint lengkap:
   - `POST /api/pmb/register` — mendaftarkan pendaftar baru dengan status `pending` (201, 400, 409).
   - `PUT /api/pmb/approve/{pendaftar_id}` — menyetujui pendaftar dan menghasilkan NIM secara idempoten (200, 400, 404, 409).
@@ -13,24 +13,29 @@ Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utu
   - `GET /api/pmb/status/{pendaftar_id}` — mengecek status dan NIM pendaftar tanpa mengekspos data pribadi sensitif (200, 404).
   - `GET /api/pmb/stats` — statistik jumlah pendaftar per status, program studi, dan jalur masuk menggunakan SQL `GROUP BY` + `OUTER JOIN` (200).
 
-### Ruang Lingkup Modul KRS (Minggu 5 — Bagian 1)
-- 4 tabel baru di SQLAlchemy 2.0 + migrasi Alembic (`89b36c3f41cc`):
-  - `matakuliah` (`kode_mk` PK, `sks` 1–4, `hari` 1–6, `jam_mulai < jam_selesai`, self-referencing `prasyarat` dengan `primaryjoin`/`secondaryjoin` eksplisit).
-  - `prerequisite` (tabel asosiasi composite PK `(kode_mk, kode_prasyarat)`).
-  - `krs` (`nim` FK ke `calon_mahasiswa.nim`, `semester` 5 karakter mis. `"20251"`, `status` enum `draft | submitted | approved | revision`, `UniqueConstraint("nim", "semester")`).
-  - `krs_detail` (`krs_id` FK, `kode_mk` FK, `nilai` nullable, `UniqueConstraint("krs_id", "kode_mk")`, cascade `delete-orphan`).
-- Pola **Chain of Responsibility** (`app/services/krs_validators.py`):
-  - `DuplicateValidator` → `SKSValidator` (`MAX_SKS = 24`) → `PrerequisiteValidator` (query `NOT EXISTS` dengan bobot nilai ≥ C) → `ConflictValidator` (irisan interval jadwal).
-- **KRSManager Service** (`app/services/krs_manager.py`): `add_course` (dengan `with_for_update()` dan 1 transaksi), `remove_course`, `validate_krs` (mengumpulkan semua error sekaligus), dan `get_krs`.
-- Endpoint KRS (`app/routers/krs.py`):
+### Ruang Lingkup Modul KRS (Minggu 5 & 6)
+- **Skema Database & Migrasi Alembic (`89b36c3f41cc`, `c6d2d3fb9b6d`):**
+  - `matakuliah`, `prerequisite` (self-referencing M:N), `krs` (termasuk `version`, `submitted_at`, `approved_at`, `updated_at`, `catatan_revisi`), `krs_detail`, `krs_log` (audit trail), dan `notifikasi`.
+- **Chain of Responsibility (`app/services/krs_validators.py`):**
+  - `DuplicateValidator` → `SKSValidator` (`MAX_SKS = 24`) → `PrerequisiteValidator` (query `NOT EXISTS` + bobot nilai ≥ C) → `ConflictValidator` (irisan interval jadwal).
+- **State Machine & Otorisasi 2 Lapis (`app/models.py`, `app/services/krs_manager.py`, `app/services/krs_errors.py`):**
+  - Tabel transisi `KRS_TRANSITIONS` + enkapsulasi `krs.cek_transisi()` & `krs.transition()` (`DRAFT → SUBMITTED`, `SUBMITTED → APPROVED/REVISION`, `REVISION → SUBMITTED`; tidak bisa skip `DRAFT → APPROVED`).
+  - Otorisasi 2 lapis: peran (`mahasiswa` vs `dosen_pa`) dan kepemilikan (`krs.dosen_pa_id == dosen_pa_id` → **403 Forbidden** jika bukan PA-nya).
+  - Transaksi atomik pada `submit_krs`, `approve_krs`, dan `revise_krs` (status + timestamp + `krs_log` + `notifikasi` dalam 1 transaksi; rollback penuh jika gagal) + *pessimistic locking* (`with_for_update()`) & *optimistic locking* (`version` → **409 Conflict**).
+  - Polymorphic exception handler tunggal `@app.exception_handler(KRSError)` di `app/main.py`.
+- **Challenge Opsional (+10%) — KRS Recommendation (`app/services/krs_recommender.py`):**
+  - CSP Backtracking memprioritaskan MK wajib > MK pilihan, tanpa bentrok, SKS ≤ 24, dengan guardrail validasi ulang melalui rantai validator resmi.
+- **Endpoint KRS (`app/routers/krs.py`):**
   - `GET /api/krs/matakuliah`
-  - `POST /api/krs/courses`
-  - `DELETE /api/krs/{nim}/{semester}/courses/{kode_mk}`
-  - `GET /api/krs/{nim}/{semester}`
-  - `GET /api/krs/{nim}/{semester}/validate`
-- Keputusan desain lengkap dan bukti `EXPLAIN QUERY PLAN` tercatat di `docs/ADR_001_KRS_VALIDATION_DESIGN.md`.
-- Dokumentasi API otomatis melalui Swagger UI di `/docs` dan ReDoc di `/redoc`.
-- Pengujian otomatis (`pytest` + `pytest-cov`) dengan coverage > 80%.
+  - `POST /api/krs/courses` & `DELETE /api/krs/{nim}/{semester}/courses/{kode_mk}`
+  - `GET /api/krs/{nim}/{semester}` & `GET /api/krs/{nim}/{semester}/validate`
+  - `POST /api/krs/{nim}/{semester}/submit`
+  - `POST /api/krs/{nim}/{semester}/approve`
+  - `POST /api/krs/{nim}/{semester}/revise`
+  - `GET /api/krs/{nim}/{semester}/logs` & `GET /api/krs/{nim}/notifikasi`
+  - `POST /api/krs/{nim}/{semester}/recommend` *(Challenge +10%)*
+- **ADR & Bukti Indeks:** `docs/ADR_001_KRS_VALIDATION_DESIGN.md` dan `docs/ADR_002_KRS_STATE_MACHINE_AND_CONCURRENCY.md`.
+- **Testing & Property-Based Testing:** `pytest` + `hypothesis` (1000 kombinasi acak SKS + 300 kombinasi jadwal acak dengan oracle independen + 32 kombinasi state machine).
 
 ---
 
@@ -102,4 +107,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **48 passed**, total coverage **96.60%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **93 passed**, total coverage **97.14%** (melebihi syarat minimum 80%).

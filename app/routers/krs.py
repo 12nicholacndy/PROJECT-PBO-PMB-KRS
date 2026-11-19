@@ -1,21 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import KRS
 from app.schemas import (
     AddCourseRequest,
+    ApproveKRSRequest,
     KRSDetailResponse,
+    KRSLogResponse,
+    KRSRecommendRequest,
+    KRSRecommendResponse,
     KRSResponse,
     KRSValidateResponse,
     MataKuliahResponse,
+    NotifikasiResponse,
+    ReviseKRSRequest,
+    SubmitKRSRequest,
 )
-from app.services.krs_manager import (
-    KRSManager,
-    KRSNotFoundError,
-    KRSStatusError,
-    KRSValidationError,
-)
+from app.services.krs_manager import KRSManager
+from app.services.krs_recommender import recommend_krs_schedule
 
 router = APIRouter(prefix="/api/krs", tags=["KRS"])
 
@@ -39,6 +42,10 @@ def _to_krs_response(krs: KRS) -> KRSResponse:
         semester=krs.semester,
         status=krs.status.value,
         dosen_pa_id=krs.dosen_pa_id,
+        version=krs.version,
+        catatan_revisi=krs.catatan_revisi,
+        submitted_at=krs.submitted_at,
+        approved_at=krs.approved_at,
         total_sks=sum(course.sks for course in courses),
         courses=courses,
     )
@@ -51,8 +58,7 @@ def _to_krs_response(krs: KRS) -> KRSResponse:
     summary="Daftar seluruh mata kuliah yang tersedia",
 )
 def list_matakuliah(db: Session = Depends(get_db)):
-    manager = KRSManager(db)
-    return manager.list_matakuliah()
+    return KRSManager(db).list_matakuliah()
 
 
 @router.post(
@@ -63,29 +69,17 @@ def list_matakuliah(db: Session = Depends(get_db)):
     responses={
         400: {"description": "Gagal validasi KRS (duplikat, SKS > 24, prasyarat, atau jadwal bentrok)"},
         404: {"description": "NIM mahasiswa atau mata kuliah tidak ditemukan"},
-        409: {"description": "Status KRS tidak mengizinkan perubahan"},
+        409: {"description": "KRS terkunci (submitted/approved) sehingga tidak dapat diubah"},
     },
 )
 def add_course(data: AddCourseRequest, db: Session = Depends(get_db)):
-    manager = KRSManager(db)
-    try:
-        krs = manager.add_course(data.nim, data.kode_mk, data.semester)
-        return _to_krs_response(krs)
-    except KRSNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-    except KRSStatusError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    except KRSValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    krs = KRSManager(db).add_course(
+        data.nim,
+        data.kode_mk,
+        data.semester,
+        dosen_pa_id=data.dosen_pa_id,
+    )
+    return _to_krs_response(krs)
 
 
 @router.delete(
@@ -95,7 +89,7 @@ def add_course(data: AddCourseRequest, db: Session = Depends(get_db)):
     summary="Menghapus mata kuliah dari KRS mahasiswa",
     responses={
         404: {"description": "KRS atau mata kuliah tidak ditemukan di dalam KRS"},
-        409: {"description": "Status KRS tidak mengizinkan perubahan"},
+        409: {"description": "KRS terkunci (submitted/approved) sehingga tidak dapat diubah"},
     },
 )
 def remove_course(
@@ -104,20 +98,19 @@ def remove_course(
     kode_mk: str,
     db: Session = Depends(get_db),
 ):
-    manager = KRSManager(db)
-    try:
-        krs = manager.remove_course(nim, kode_mk, semester)
-        return _to_krs_response(krs)
-    except KRSNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-    except KRSStatusError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
+    krs = KRSManager(db).remove_course(nim, kode_mk, semester)
+    return _to_krs_response(krs)
+
+
+@router.get(
+    "/{nim}/notifikasi",
+    response_model=list[NotifikasiResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Melihat daftar notifikasi mahasiswa",
+    responses={404: {"description": "Mahasiswa tidak ditemukan"}},
+)
+def get_notifikasi(nim: str, db: Session = Depends(get_db)):
+    return KRSManager(db).get_notifications(nim)
 
 
 @router.get(
@@ -125,20 +118,11 @@ def remove_course(
     response_model=KRSResponse,
     status_code=status.HTTP_200_OK,
     summary="Melihat detail KRS mahasiswa pada semester tertentu",
-    responses={
-        404: {"description": "KRS tidak ditemukan"},
-    },
+    responses={404: {"description": "KRS tidak ditemukan"}},
 )
 def get_krs(nim: str, semester: str, db: Session = Depends(get_db)):
-    manager = KRSManager(db)
-    try:
-        krs = manager.get_krs(nim, semester)
-        return _to_krs_response(krs)
-    except KRSNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+    krs = KRSManager(db).get_krs(nim, semester)
+    return _to_krs_response(krs)
 
 
 @router.get(
@@ -146,16 +130,121 @@ def get_krs(nim: str, semester: str, db: Session = Depends(get_db)):
     response_model=KRSValidateResponse,
     status_code=status.HTTP_200_OK,
     summary="Memvalidasi seluruh aturan KRS dan mengumpulkan semua kesalahan sekaligus",
-    responses={
-        404: {"description": "KRS tidak ditemukan"},
-    },
+    responses={404: {"description": "KRS tidak ditemukan"}},
 )
 def validate_krs(nim: str, semester: str, db: Session = Depends(get_db)):
-    manager = KRSManager(db)
-    try:
-        return manager.validate_krs(nim, semester)
-    except KRSNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+    return KRSManager(db).validate_krs(nim, semester)
+
+
+@router.post(
+    "/{nim}/{semester}/submit",
+    response_model=KRSResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mengajukan KRS (DRAFT/REVISION -> SUBMITTED)",
+    responses={
+        400: {"description": "KRS kosong atau tidak lolos validasi"},
+        403: {"description": "Mahasiswa tidak berwenang mengajukan KRS ini"},
+        404: {"description": "KRS tidak ditemukan"},
+        409: {"description": "Transisi status tidak diizinkan"},
+    },
+)
+def submit_krs(
+    nim: str,
+    semester: str,
+    body: SubmitKRSRequest | None = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    requester_nim = body.requester_nim if body is not None else None
+    krs = KRSManager(db).submit_krs(nim, semester, requester_nim=requester_nim)
+    return _to_krs_response(krs)
+
+
+@router.post(
+    "/{nim}/{semester}/approve",
+    response_model=KRSResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Menyetujui KRS oleh Dosen PA (SUBMITTED -> APPROVED) dalam satu transaksi",
+    responses={
+        403: {"description": "Bukan Dosen PA yang berwenang"},
+        404: {"description": "KRS tidak ditemukan"},
+        409: {"description": "Transisi status tidak diizinkan atau versi KRS sudah berubah"},
+    },
+)
+def approve_krs(
+    nim: str,
+    semester: str,
+    body: ApproveKRSRequest,
+    db: Session = Depends(get_db),
+):
+    krs = KRSManager(db).approve_krs(
+        nim,
+        semester,
+        dosen_pa_id=body.dosen_pa_id,
+        expected_version=body.version,
+    )
+    return _to_krs_response(krs)
+
+
+@router.post(
+    "/{nim}/{semester}/revise",
+    response_model=KRSResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mengembalikan KRS untuk revisi oleh Dosen PA (SUBMITTED -> REVISION)",
+    responses={
+        400: {"description": "Catatan revisi kosong"},
+        403: {"description": "Bukan Dosen PA yang berwenang"},
+        404: {"description": "KRS tidak ditemukan"},
+        409: {"description": "Transisi status tidak diizinkan atau versi KRS sudah berubah"},
+    },
+)
+def revise_krs(
+    nim: str,
+    semester: str,
+    body: ReviseKRSRequest,
+    db: Session = Depends(get_db),
+):
+    krs = KRSManager(db).revise_krs(
+        nim,
+        semester,
+        dosen_pa_id=body.dosen_pa_id,
+        catatan=body.catatan,
+        expected_version=body.version,
+    )
+    return _to_krs_response(krs)
+
+
+@router.get(
+    "/{nim}/{semester}/logs",
+    response_model=list[KRSLogResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Melihat riwayat audit perubahan status KRS",
+    responses={404: {"description": "KRS tidak ditemukan"}},
+)
+def get_krs_logs(nim: str, semester: str, db: Session = Depends(get_db)):
+    return KRSManager(db).get_logs(nim, semester)
+
+
+@router.post(
+    "/{nim}/{semester}/recommend",
+    response_model=KRSRecommendResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Challenge Opsional (+10%): Rekomendasi jadwal KRS optimal (CSP Backtracking)",
+    responses={
+        400: {"description": "Input rekomendasi tidak valid"},
+        404: {"description": "Mahasiswa atau mata kuliah tidak ditemukan"},
+    },
+)
+def recommend_krs(
+    nim: str,
+    semester: str,
+    body: KRSRecommendRequest,
+    db: Session = Depends(get_db),
+):
+    return recommend_krs_schedule(
+        db=db,
+        nim=nim,
+        semester=semester,
+        wajib_codes=body.wajib_codes,
+        pilihan_codes=body.pilihan_codes,
+        max_sks=body.max_sks,
+    )

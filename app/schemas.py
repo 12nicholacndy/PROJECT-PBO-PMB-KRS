@@ -87,6 +87,7 @@ class AddCourseRequest(BaseModel):
     nim: str = Field(min_length=1, max_length=30)
     semester: str = Field(pattern=r"^\d{5}$")
     kode_mk: str = Field(min_length=1, max_length=20)
+    dosen_pa_id: int | None = Field(default=None, gt=0)
 
 
 class MataKuliahResponse(BaseModel):
@@ -116,6 +117,10 @@ class KRSResponse(BaseModel):
     semester: str
     status: str
     dosen_pa_id: int | None
+    version: int
+    catatan_revisi: str | None
+    submitted_at: datetime | None
+    approved_at: datetime | None
     total_sks: int
     courses: list[KRSDetailResponse]
 
@@ -127,4 +132,76 @@ class KRSValidateResponse(BaseModel):
     total_sks: int
     valid: bool
     errors: list[str]
+
+
+class SubmitKRSRequest(BaseModel):
+    requester_nim: str | None = Field(default=None, min_length=1, max_length=30)
+
+
+class ApproveKRSRequest(BaseModel):
+    dosen_pa_id: int = Field(gt=0)
+    version: int | None = Field(default=None, gt=0)
+
+
+class ReviseKRSRequest(BaseModel):
+    dosen_pa_id: int = Field(gt=0)
+    catatan: str = Field(min_length=1, max_length=500)
+    version: int | None = Field(default=None, gt=0)
+
+    @field_validator("catatan")
+    @classmethod
+    def catatan_tidak_boleh_kosong(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Catatan revisi wajib diisi")
+        return value
+
+
+class KRSLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    krs_id: int
+    aktor: str
+    aktor_id: str
+    aksi: str
+    dari_status: str
+    ke_status: str
+    catatan: str | None
+    created_at: datetime
+
+
+class NotifikasiResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nim: str
+    judul: str
+    pesan: str
+    dibaca: bool
+    created_at: datetime
+
+
+class KRSRecommendRequest(BaseModel):
+    wajib_codes: list[str] = Field(default_factory=list)
+    pilihan_codes: list[str] = Field(default_factory=list)
+    max_sks: int = Field(default=24, ge=1, le=24)
+
+
+class SkippedCourseResponse(BaseModel):
+    kode_mk: str
+    nama: str
+    alasan: str
+
+
+class KRSRecommendResponse(BaseModel):
+    nim: str
+    semester: str
+    max_sks: int
+    total_sks: int
+    wajib_terpilih: list[str]
+    pilihan_terpilih: list[str]
+    recommended_courses: list[MataKuliahResponse]
+    skipped_courses: list[SkippedCourseResponse]
+    validated: bool
 
