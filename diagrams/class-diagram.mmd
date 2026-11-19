@@ -1,0 +1,66 @@
+classDiagram
+    %% Draft v1 dari prompt awal (sebelum validasi relasi, visibility, Payment, dan refactor SOLID)
+    class User {
+        id: int
+        username: string
+        password: string
+        email: string
+        login()
+        logout()
+    }
+
+    class Mahasiswa {
+        nim: string
+        ipk: float
+        isiKRS()
+        validasiKRS()
+        cetakTranskripPDF()
+        kirimEmailTagihan()
+    }
+
+    class Dosen {
+        nidn: string
+        approveKRS()
+        inputNilai()
+    }
+
+    class Admin {
+        verifikasiPMB()
+    }
+
+    class CalonMahasiswa {
+        noPendaftaran: string
+        status: string
+        daftarPMB()
+    }
+
+    class Course {
+        kode: string
+        nama: string
+        sks: int
+    }
+
+    class Enrollment {
+        semester: string
+        status: string
+    }
+
+    class Schedule {
+        hari: string
+        jam: string
+        ruangan: string
+    }
+
+    class Grade {
+        nilaiAngka: float
+        nilaiHuruf: string
+    }
+
+    User <|-- Mahasiswa
+    User <|-- Dosen
+    User <|-- Admin
+    User <|-- CalonMahasiswa
+    Mahasiswa --> Enrollment
+    Course --> Enrollment
+    Course --> Schedule
+    Mahasiswa --> Grade
