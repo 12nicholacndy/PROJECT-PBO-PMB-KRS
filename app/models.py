@@ -1,18 +1,21 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from enum import Enum
 
 from sqlalchemy import (
     CheckConstraint,
+    Column,
     Date,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
     Integer,
     String,
+    Table,
+    Time,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -23,6 +26,13 @@ class StatusPMB(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class KRSStatus(str, Enum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REVISION = "revision"
 
 
 class ProgramStudi(Base):
@@ -81,12 +91,12 @@ class CalonMahasiswa(Base):
         server_default=StatusPMB.PENDING.value,
     )
 
-    # Disiapkan untuk proses approval dan generator NIM pada minggu 4.
     nim: Mapped[str | None] = mapped_column(String(30), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.current_timestamp()
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
 
 class NIMSequence(Base):
     __tablename__ = "nim_sequence"
@@ -96,3 +106,99 @@ class NIMSequence(Base):
     last_number: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
+
+
+# Tabel asosiasi self-referencing many-to-many untuk prasyarat mata kuliah.
+# Composite PK (kode_mk, kode_prasyarat) mencegah duplikasi & otomatis membentuk indeks.
+prerequisite_table = Table(
+    "prerequisite",
+    Base.metadata,
+    Column("kode_mk", String(20), ForeignKey("matakuliah.kode_mk"), primary_key=True),
+    Column(
+        "kode_prasyarat",
+        String(20),
+        ForeignKey("matakuliah.kode_mk"),
+        primary_key=True,
+    ),
+)
+
+
+class MataKuliah(Base):
+    __tablename__ = "matakuliah"
+    __table_args__ = (
+        CheckConstraint("sks BETWEEN 1 AND 4", name="ck_matakuliah_sks_1_4"),
+        CheckConstraint("hari BETWEEN 1 AND 6", name="ck_matakuliah_hari_1_6"),
+        CheckConstraint("jam_mulai < jam_selesai", name="ck_matakuliah_jam_valid"),
+    )
+
+    kode_mk: Mapped[str] = mapped_column(String(20), primary_key=True)
+    nama: Mapped[str] = mapped_column(String(150), nullable=False)
+    sks: Mapped[int] = mapped_column(Integer, nullable=False)
+    hari: Mapped[int] = mapped_column(Integer, nullable=False)
+    jam_mulai: Mapped[time] = mapped_column(Time, nullable=False)
+    jam_selesai: Mapped[time] = mapped_column(Time, nullable=False)
+
+    # primaryjoin: MK ini -> kolom kode_mk di tabel prerequisite
+    # secondaryjoin: kolom kode_prasyarat -> MK prasyarat yang harus lulus dulu
+    prasyarat: Mapped[list["MataKuliah"]] = relationship(
+        "MataKuliah",
+        secondary=prerequisite_table,
+        primaryjoin=kode_mk == prerequisite_table.c.kode_mk,
+        secondaryjoin=kode_mk == prerequisite_table.c.kode_prasyarat,
+    )
+
+
+class KRS(Base):
+    __tablename__ = "krs"
+    __table_args__ = (
+        UniqueConstraint("nim", "semester", name="uq_krs_nim_semester"),
+        CheckConstraint("length(semester) = 5", name="ck_krs_semester_5"),
+        CheckConstraint(
+            "status IN ('draft', 'submitted', 'approved', 'revision')",
+            name="ck_krs_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nim: Mapped[str] = mapped_column(
+        String(30), ForeignKey("calon_mahasiswa.nim"), nullable=False
+    )
+    semester: Mapped[str] = mapped_column(String(5), nullable=False)
+    status: Mapped[KRSStatus] = mapped_column(
+        SAEnum(
+            KRSStatus,
+            name="krs_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=KRSStatus.DRAFT,
+        server_default=KRSStatus.DRAFT.value,
+    )
+    dosen_pa_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    details: Mapped[list["KRSDetail"]] = relationship(
+        back_populates="krs",
+        cascade="all, delete-orphan",
+    )
+
+
+class KRSDetail(Base):
+    __tablename__ = "krs_detail"
+    __table_args__ = (
+        UniqueConstraint("krs_id", "kode_mk", name="uq_krs_detail_krs_mk"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    krs_id: Mapped[int] = mapped_column(ForeignKey("krs.id"), nullable=False)
+    kode_mk: Mapped[str] = mapped_column(
+        String(20), ForeignKey("matakuliah.kode_mk"), nullable=False
+    )
+    nilai: Mapped[str | None] = mapped_column(String(2), nullable=True)
+
+    krs: Mapped["KRS"] = relationship(back_populates="details")
+    matakuliah: Mapped["MataKuliah"] = relationship()

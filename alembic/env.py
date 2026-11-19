@@ -1,17 +1,20 @@
-
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.database import DATABASE_URL
-from app.models import (
+from app.models import (  # noqa: F401
     Base,
     CalonMahasiswa,
     JalurMasuk,
+    KRS,
+    KRSDetail,
+    MataKuliah,
     NIMSequence,
     ProgramStudi,
-)  # noqa: F401
+    prerequisite_table,
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
@@ -59,4 +62,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

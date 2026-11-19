@@ -2,12 +2,13 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.routers.krs import router as krs_router
 from app.routers.pmb import router as pmb_router
 
 app = FastAPI(
-    title="Sistem Penerimaan Mahasiswa Baru",
-    description="API PMB — implementasi modul PMB (Minggu 3 & 4)",
-    version="1.1.0",
+    title="Sistem Informasi Akademik Mini (PMB & KRS)",
+    description="API Modul PMB (Minggu 3 & 4) dan Modul KRS (Minggu 5)",
+    version="1.2.0",
 )
 
 
@@ -35,3 +36,4 @@ def home():
 
 
 app.include_router(pmb_router)
+app.include_router(krs_router)

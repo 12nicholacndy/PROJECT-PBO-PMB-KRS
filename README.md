@@ -1,15 +1,34 @@
-# Sistem PMB — Implementasi Modul PMB (Minggu 3 & 4)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4) & Modul KRS (Minggu 5)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 dan Minggu 4:
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, serta **Modul Kartu Rencana Studi (KRS) — Minggu 5 Bagian 1**:
+
+### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
 - Primary key, foreign key, unique constraint, check constraint, enum status (`pending`, `approved`, `rejected`), dan nilai default.
-- Migrasi database menggunakan Alembic (`0001_create_pmb` → `bd324e9e0e78`).
+- Migrasi database menggunakan Alembic (`0001_create_pmb` → `bd324e9e0e78` → `89b36c3f41cc`).
 - Endpoint lengkap:
   - `POST /api/pmb/register` — mendaftarkan pendaftar baru dengan status `pending` (201, 400, 409).
   - `PUT /api/pmb/approve/{pendaftar_id}` — menyetujui pendaftar dan menghasilkan NIM secara idempoten (200, 400, 404, 409).
   - `PUT /api/pmb/reject/{pendaftar_id}` — menolak pendaftar berstatus `pending` (200, 404, 409).
   - `GET /api/pmb/status/{pendaftar_id}` — mengecek status dan NIM pendaftar tanpa mengekspos data pribadi sensitif (200, 404).
   - `GET /api/pmb/stats` — statistik jumlah pendaftar per status, program studi, dan jalur masuk menggunakan SQL `GROUP BY` + `OUTER JOIN` (200).
+
+### Ruang Lingkup Modul KRS (Minggu 5 — Bagian 1)
+- 4 tabel baru di SQLAlchemy 2.0 + migrasi Alembic (`89b36c3f41cc`):
+  - `matakuliah` (`kode_mk` PK, `sks` 1–4, `hari` 1–6, `jam_mulai < jam_selesai`, self-referencing `prasyarat` dengan `primaryjoin`/`secondaryjoin` eksplisit).
+  - `prerequisite` (tabel asosiasi composite PK `(kode_mk, kode_prasyarat)`).
+  - `krs` (`nim` FK ke `calon_mahasiswa.nim`, `semester` 5 karakter mis. `"20251"`, `status` enum `draft | submitted | approved | revision`, `UniqueConstraint("nim", "semester")`).
+  - `krs_detail` (`krs_id` FK, `kode_mk` FK, `nilai` nullable, `UniqueConstraint("krs_id", "kode_mk")`, cascade `delete-orphan`).
+- Pola **Chain of Responsibility** (`app/services/krs_validators.py`):
+  - `DuplicateValidator` → `SKSValidator` (`MAX_SKS = 24`) → `PrerequisiteValidator` (query `NOT EXISTS` dengan bobot nilai ≥ C) → `ConflictValidator` (irisan interval jadwal).
+- **KRSManager Service** (`app/services/krs_manager.py`): `add_course` (dengan `with_for_update()` dan 1 transaksi), `remove_course`, `validate_krs` (mengumpulkan semua error sekaligus), dan `get_krs`.
+- Endpoint KRS (`app/routers/krs.py`):
+  - `GET /api/krs/matakuliah`
+  - `POST /api/krs/courses`
+  - `DELETE /api/krs/{nim}/{semester}/courses/{kode_mk}`
+  - `GET /api/krs/{nim}/{semester}`
+  - `GET /api/krs/{nim}/{semester}/validate`
+- Keputusan desain lengkap dan bukti `EXPLAIN QUERY PLAN` tercatat di `docs/ADR_001_KRS_VALIDATION_DESIGN.md`.
 - Dokumentasi API otomatis melalui Swagger UI di `/docs` dan ReDoc di `/redoc`.
 - Pengujian otomatis (`pytest` + `pytest-cov`) dengan coverage > 80%.
 
@@ -83,4 +102,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **32 passed**, total coverage **95.09%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **48 passed**, total coverage **96.60%** (melebihi syarat minimum 80%).

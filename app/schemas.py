@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -81,3 +81,50 @@ class StatsResponse(BaseModel):
     per_status: dict[str, int]
     per_program_studi: dict[str, int]
     per_jalur_masuk: dict[str, int]
+
+
+class AddCourseRequest(BaseModel):
+    nim: str = Field(min_length=1, max_length=30)
+    semester: str = Field(pattern=r"^\d{5}$")
+    kode_mk: str = Field(min_length=1, max_length=20)
+
+
+class MataKuliahResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kode_mk: str
+    nama: str
+    sks: int
+    hari: int
+    jam_mulai: time
+    jam_selesai: time
+
+
+class KRSDetailResponse(BaseModel):
+    kode_mk: str
+    nama: str
+    sks: int
+    hari: int
+    jam_mulai: time
+    jam_selesai: time
+    nilai: str | None
+
+
+class KRSResponse(BaseModel):
+    id: int
+    nim: str
+    semester: str
+    status: str
+    dosen_pa_id: int | None
+    total_sks: int
+    courses: list[KRSDetailResponse]
+
+
+class KRSValidateResponse(BaseModel):
+    nim: str
+    semester: str
+    status: str
+    total_sks: int
+    valid: bool
+    errors: list[str]
+
