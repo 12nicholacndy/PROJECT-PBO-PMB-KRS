@@ -1,16 +1,35 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import CalonMahasiswa, JalurMasuk, ProgramStudi, StatusPMB
+from app.models import (
+    CalonMahasiswa,
+    JalurMasuk,
+    NIMSequence,
+    ProgramStudi,
+    StatusPMB,
+)
 from app.schemas import RegisterRequest
-
 
 class EmailSudahTerdaftar(Exception):
     pass
 
 
 class ReferensiTidakValid(Exception):
+    pass
+
+
+class PendaftarTidakDitemukan(Exception):
+    pass
+
+
+class StatusTidakValid(Exception):
+    pass
+
+
+class NIMTidakValid(Exception):
     pass
 
 

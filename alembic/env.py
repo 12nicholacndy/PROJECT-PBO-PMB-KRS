@@ -1,10 +1,17 @@
+
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.database import DATABASE_URL
-from app.models import Base, CalonMahasiswa, JalurMasuk, ProgramStudi  # noqa: F401
+from app.models import (
+    Base,
+    CalonMahasiswa,
+    JalurMasuk,
+    NIMSequence,
+    ProgramStudi,
+)  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
@@ -37,6 +44,8 @@ def run_migrations_online():
     with connectable.connect() as connection:
         if connection.dialect.name == "sqlite":
             connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.commit()
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -50,3 +59,4 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+

@@ -87,3 +87,12 @@ class CalonMahasiswa(Base):
         DateTime, nullable=False, server_default=func.current_timestamp()
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+class NIMSequence(Base):
+    __tablename__ = "nim_sequence"
+
+    tahun: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kode_prodi: Mapped[str] = mapped_column(String(3), primary_key=True)
+    last_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
