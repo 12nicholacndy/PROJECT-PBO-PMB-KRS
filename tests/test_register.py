@@ -2,7 +2,8 @@ from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -74,14 +75,48 @@ def payload(**overrides):
 def test_register_success_returns_201_and_pending(client):
     response = client.post("/api/pmb/register", json=payload())
     assert response.status_code == 201
-    assert response.json()["status"] == "pending"
-    assert response.json()["nim"] is None
+    body = response.json()
+    assert body["status"] == "pending"
+    assert body["nim"] is None
+    assert "created_at" in body
+    # Data sensitif tidak ikut dikembalikan pada respons pendaftaran.
+    assert "alamat" not in body
+    assert "tanggal_lahir" not in body
+
+
+def test_register_accepts_628_and_plus628_phone_formats(client):
+    res_62 = client.post(
+        "/api/pmb/register",
+        json=payload(email="siti@example.com", no_hp="6281234567890"),
+    )
+    assert res_62.status_code == 201
+
+    res_plus62 = client.post(
+        "/api/pmb/register",
+        json=payload(email="andi@example.com", no_hp="+6281234567890"),
+    )
+    assert res_plus62.status_code == 201
 
 
 def test_duplicate_email_returns_409(client):
     client.post("/api/pmb/register", json=payload())
     response = client.post("/api/pmb/register", json=payload())
     assert response.status_code == 409
+
+
+def test_duplicate_email_case_insensitive_returns_409(client):
+    client.post("/api/pmb/register", json=payload(email="budi@example.com"))
+    response = client.post(
+        "/api/pmb/register", json=payload(email="Budi@example.com")
+    )
+    assert response.status_code == 409
+
+
+def test_whitespace_padded_short_name_returns_400(client):
+    response = client.post(
+        "/api/pmb/register", json=payload(nama_lengkap=" a ")
+    )
+    assert response.status_code == 400
 
 
 def test_invalid_phone_returns_400(client):
@@ -110,3 +145,35 @@ def test_invalid_email_returns_400(client):
         "/api/pmb/register", json=payload(email="bukan-email")
     )
     assert response.status_code == 400
+
+
+def test_database_rejects_invalid_status_and_foreign_key(client):
+    db = TestingSessionLocal()
+    try:
+        with pytest.raises(IntegrityError):
+            db.execute(
+                text(
+                    "INSERT INTO calon_mahasiswa "
+                    "(nama_lengkap, email, no_hp, tanggal_lahir, alamat, "
+                    "program_studi_id, jalur_masuk_id, status) "
+                    "VALUES ('Dummy', 'dummy1@example.com', '081234567890', "
+                    "'2007-01-01', 'Bogor', 1, 1, 'hampir_diterima')"
+                )
+            )
+            db.commit()
+        db.rollback()
+
+        with pytest.raises(IntegrityError):
+            db.execute(
+                text(
+                    "INSERT INTO calon_mahasiswa "
+                    "(nama_lengkap, email, no_hp, tanggal_lahir, alamat, "
+                    "program_studi_id, jalur_masuk_id, status) "
+                    "VALUES ('Dummy', 'dummy2@example.com', '081234567890', "
+                    "'2007-01-01', 'Bogor', 999, 1, 'pending')"
+                )
+            )
+            db.commit()
+        db.rollback()
+    finally:
+        db.close()

@@ -15,9 +15,11 @@ class ReferensiTidakValid(Exception):
 
 
 def register_pendaftar(db: Session, data: RegisterRequest) -> CalonMahasiswa:
+    normalized_email = str(data.email).lower()
+
     # Pemeriksaan awal agar pesan konflik lebih jelas.
     email_ada = db.scalar(
-        select(CalonMahasiswa.id).where(CalonMahasiswa.email == str(data.email))
+        select(CalonMahasiswa.id).where(CalonMahasiswa.email == normalized_email)
     )
     if email_ada is not None:
         raise EmailSudahTerdaftar("Email sudah terdaftar")
@@ -31,7 +33,7 @@ def register_pendaftar(db: Session, data: RegisterRequest) -> CalonMahasiswa:
 
     pendaftar = CalonMahasiswa(
         nama_lengkap=data.nama_lengkap,
-        email=str(data.email),
+        email=normalized_email,
         no_hp=data.no_hp,
         tanggal_lahir=data.tanggal_lahir,
         alamat=data.alamat,

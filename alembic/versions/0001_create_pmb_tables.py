@@ -69,10 +69,6 @@ def upgrade():
         ),
         sa.UniqueConstraint("email", name="uq_calon_mahasiswa_email"),
         sa.UniqueConstraint("nim", name="uq_calon_mahasiswa_nim"),
-        sa.CheckConstraint(
-            "status IN ('pending', 'approved', 'rejected')",
-            name="ck_calon_mahasiswa_status",
-        ),
     )
     op.create_index(
         "ix_calon_mahasiswa_email",

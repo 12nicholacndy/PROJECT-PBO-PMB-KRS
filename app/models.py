@@ -48,10 +48,6 @@ class CalonMahasiswa(Base):
     __tablename__ = "calon_mahasiswa"
     __table_args__ = (
         UniqueConstraint("email", name="uq_calon_mahasiswa_email"),
-        CheckConstraint(
-            "status IN ('pending', 'approved', 'rejected')",
-            name="ck_calon_mahasiswa_status",
-        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
