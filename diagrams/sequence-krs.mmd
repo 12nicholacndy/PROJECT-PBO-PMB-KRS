@@ -1,0 +1,22 @@
+%% SEVIMA-Mini — Sequence Diagram Validasi KRS (Draft v1 — Output Awal AI sebelum Revisi)
+%% Catatan kelemahan awal AI:
+%% 1. Semua logika menumpuk di satu participant "SistemAkademik" (God Object).
+%% 2. Tidak ada fragmen loop untuk memeriksa prasyarat setiap mata kuliah.
+%% 3. Tidak ada alternate flow (alt) untuk kasus gagal (prasyarat, SKS > 24, jadwal bentrok).
+%% 4. Notifikasi ke Dosen PA masih sinkron sehingga memblokir respon ke Mahasiswa.
+sequenceDiagram
+    actor Mahasiswa
+    participant SistemAkademik
+    participant Database
+    actor DosenPA
+
+    Mahasiswa->>SistemAkademik: submitKRS(daftarMK)
+    SistemAkademik->>Database: cekPrasyarat(daftarMK)
+    Database-->>SistemAkademik: valid
+    SistemAkademik->>SistemAkademik: cekBatasSKS(daftarMK)
+    SistemAkademik->>SistemAkademik: cekJadwalBentrok(daftarMK)
+    SistemAkademik->>Database: simpanKRS(status="PENDING_APPROVAL")
+    Database-->>SistemAkademik: tersimpan
+    SistemAkademik->>DosenPA: kirimNotifikasiApproval(krs)
+    DosenPA-->>SistemAkademik: diterima
+    SistemAkademik-->>Mahasiswa: krsBerhasilDisubmit

@@ -1,0 +1,24 @@
+%% SEVIMA-Mini — Sequence Diagram PMB (Draft v1 — Output Awal AI sebelum Revisi)
+%% Catatan kelemahan awal AI:
+%% 1. Menggunakan satu participant raksasa "SistemAkademik" (tanda God Object).
+%% 2. Tidak memakai UserFactory untuk pembuatan objek Mahasiswa & NIM.
+%% 3. Pengiriman email notifikasi masih sinkron (memblokir proses Admin).
+%% 4. Hanya menampilkan happy path tanpa alternate flow (berkas tidak lengkap / email gagal).
+sequenceDiagram
+    actor CalonMahasiswa
+    actor Admin
+    participant SistemAkademik
+    participant Database
+
+    CalonMahasiswa->>SistemAkademik: daftarPMB(dataFormulir)
+    SistemAkademik->>Database: simpanPendaftar(dataFormulir)
+    Database-->>SistemAkademik: noPendaftaran
+    SistemAkademik-->>CalonMahasiswa: konfirmasiDaftar(noPendaftaran)
+
+    Admin->>SistemAkademik: verifikasiDanLuluskan(noPendaftaran)
+    SistemAkademik->>SistemAkademik: buatMahasiswaDanNIM()
+    SistemAkademik->>Database: simpanMahasiswa(mahasiswa)
+    Database-->>SistemAkademik: ok
+    SistemAkademik->>CalonMahasiswa: kirimEmailNIM(nim, akun)
+    CalonMahasiswa-->>SistemAkademik: emailTerkirim
+    SistemAkademik-->>Admin: statusLulus

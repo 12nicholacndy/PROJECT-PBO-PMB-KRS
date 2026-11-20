@@ -1,0 +1,30 @@
+%% SEVIMA-Mini — Use Case Diagram (Draft v1 — Output Awal AI sebelum Revisi)
+%% Catatan kelemahan awal AI untuk bahan perbandingan Before-After:
+%% 1. Aktor eksternal Sistem PMB & use case pendaftaran/verifikasi berkas belum lengkap.
+%% 2. Terdapat use case detail antarmuka ("Klik Tombol Simpan") yang bukan tujuan bisnis.
+%% 3. Arah panah <<extend>> terbalik (seharusnya dari extension ke base).
+flowchart LR
+    Mahasiswa([Mahasiswa])
+    Dosen([Dosen])
+    Admin([Admin])
+
+    subgraph SEVIMA["SEVIMA-Mini"]
+        UC1([Isi KRS])
+        UC2([Klik Tombol Simpan KRS])
+        UC3([Cek Prasyarat])
+        UC4([Approve KRS])
+        UC5([Ajukan Revisi KRS])
+        UC6([Input Nilai])
+        UC7([Generate Transkrip])
+    end
+
+    Mahasiswa --- UC1
+    Mahasiswa --- UC2
+    Mahasiswa --- UC7
+    Dosen --- UC4
+    Dosen --- UC6
+    Admin --- UC7
+
+    UC1 -. "<<include>>" .-> UC3
+    %% SALAH ARAH (kesalahan umum AI): extend ditarik dari base ke extension
+    UC4 -. "<<extend>>" .-> UC5
