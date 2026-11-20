@@ -1,7 +1,14 @@
 import re
 from datetime import date, datetime, time
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 PHONE_PATTERN = re.compile(r"^(?:\+62|62|0)8[1-9][0-9]{6,10}$")
@@ -204,4 +211,48 @@ class KRSRecommendResponse(BaseModel):
     recommended_courses: list[MataKuliahResponse]
     skipped_courses: list[SkippedCourseResponse]
     validated: bool
+
+
+class JadwalRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    kelas_id: int = Field(gt=0)
+    ruangan_kode: str = Field(min_length=1, max_length=20)
+    dosen_id: int = Field(gt=0)
+    hari: int = Field(ge=1, le=6)
+    jam_mulai: time
+    jam_selesai: time
+
+    @model_validator(mode="after")
+    def validasi_rentang_jam(self) -> "JadwalRequest":
+        if self.jam_mulai >= self.jam_selesai:
+            raise ValueError("jam_mulai harus lebih awal daripada jam_selesai")
+        return self
+
+
+class JadwalResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kelas_id: int
+    ruangan_kode: str
+    dosen_id: int
+    hari: int
+    jam_mulai: time
+    jam_selesai: time
+
+
+class ConflictItemResponse(BaseModel):
+    type: str
+    affected: list[int]
+
+
+class ConflictListResponse(BaseModel):
+    total: int
+    conflicts: list[ConflictItemResponse]
+
+
+class DeleteJadwalResponse(BaseModel):
+    deleted_id: int
+    message: str
 

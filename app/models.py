@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -244,10 +245,94 @@ class KRSDetail(Base):
     kode_mk: Mapped[str] = mapped_column(
         String(20), ForeignKey("matakuliah.kode_mk"), nullable=False
     )
+    kelas_id: Mapped[int | None] = mapped_column(
+        ForeignKey("kelas.id"), nullable=True, index=True
+    )
     nilai: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     krs: Mapped["KRS"] = relationship(back_populates="details")
     matakuliah: Mapped["MataKuliah"] = relationship()
+    kelas: Mapped["Kelas | None"] = relationship()
+
+
+class Ruangan(Base):
+    """Ruang kuliah dengan kode sebagai natural primary key."""
+
+    __tablename__ = "ruangan"
+    __table_args__ = (
+        CheckConstraint("kapasitas > 0", name="ck_ruangan_kapasitas_positif"),
+    )
+
+    kode: Mapped[str] = mapped_column(String(20), primary_key=True)
+    nama: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    kapasitas: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    jadwals: Mapped[list["Jadwal"]] = relationship(back_populates="ruangan")
+
+
+class Dosen(Base):
+    """Dosen pengampu mata kuliah dengan NIDN unik."""
+
+    __tablename__ = "dosen"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nidn: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    nama: Mapped[str] = mapped_column(String(150), nullable=False)
+
+    jadwals: Mapped[list["Jadwal"]] = relationship(back_populates="dosen")
+
+
+class Kelas(Base):
+    """Kelas paralel dari sebuah mata kuliah pada semester tertentu."""
+
+    __tablename__ = "kelas"
+    __table_args__ = (
+        UniqueConstraint(
+            "kode_mk", "nama_kelas", "semester", name="uq_kelas_mk_nama_semester"
+        ),
+        CheckConstraint("kuota > 0", name="ck_kelas_kuota_positif"),
+        CheckConstraint("length(semester) = 5", name="ck_kelas_semester_5"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kode_mk: Mapped[str] = mapped_column(
+        String(20), ForeignKey("matakuliah.kode_mk"), nullable=False
+    )
+    nama_kelas: Mapped[str] = mapped_column(String(10), nullable=False)
+    kuota: Mapped[int] = mapped_column(Integer, nullable=False)
+    semester: Mapped[str] = mapped_column(String(5), nullable=False)
+
+    matakuliah: Mapped["MataKuliah"] = relationship()
+    jadwals: Mapped[list["Jadwal"]] = relationship(
+        back_populates="kelas",
+        cascade="all, delete-orphan",
+    )
+
+
+class Jadwal(Base):
+    """Satu pertemuan mingguan yang mengikat kelas, hari/jam, ruangan, dan dosen."""
+
+    __tablename__ = "jadwal"
+    __table_args__ = (
+        CheckConstraint("jam_mulai < jam_selesai", name="ck_jadwal_jam_valid"),
+        CheckConstraint("hari BETWEEN 1 AND 6", name="ck_jadwal_hari_1_6"),
+        Index("ix_jadwal_hari_ruangan", "hari", "ruangan_kode"),
+        Index("ix_jadwal_hari_dosen", "hari", "dosen_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kelas_id: Mapped[int] = mapped_column(ForeignKey("kelas.id"), nullable=False)
+    ruangan_kode: Mapped[str] = mapped_column(
+        String(20), ForeignKey("ruangan.kode"), nullable=False
+    )
+    dosen_id: Mapped[int] = mapped_column(ForeignKey("dosen.id"), nullable=False)
+    hari: Mapped[int] = mapped_column(Integer, nullable=False)
+    jam_mulai: Mapped[time] = mapped_column(Time, nullable=False)
+    jam_selesai: Mapped[time] = mapped_column(Time, nullable=False)
+
+    kelas: Mapped["Kelas"] = relationship(back_populates="jadwals")
+    ruangan: Mapped["Ruangan"] = relationship(back_populates="jadwals")
+    dosen: Mapped["Dosen"] = relationship(back_populates="jadwals")
 
 
 class KRSLog(Base):

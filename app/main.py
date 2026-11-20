@@ -2,14 +2,19 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.routers.jadwal import router as jadwal_router
 from app.routers.krs import router as krs_router
 from app.routers.pmb import router as pmb_router
 from app.services.krs_errors import KRSError
+from app.services.schedule_errors import ScheduleError
 
 app = FastAPI(
-    title="Sistem Informasi Akademik Mini (PMB & KRS)",
-    description="API Modul PMB (Minggu 3–4) dan Modul KRS lengkap dengan State Machine & Rekomendasi CSP (Minggu 5–6)",
-    version="2.0.0",
+    title="Sistem Informasi Akademik Mini (PMB, KRS & Jadwal)",
+    description=(
+        "API Modul PMB (Minggu 3–4), Modul KRS dengan State Machine & CSP (Minggu 5–6), "
+        "dan Modul Jadwal & Ruangan dengan Deteksi Bentrok 3D (Minggu 7)"
+    ),
+    version="2.1.0",
 )
 
 
@@ -41,10 +46,21 @@ async def krs_exception_handler(request: Request, exc: KRSError):
     )
 
 
+@app.exception_handler(ScheduleError)
+async def schedule_exception_handler(request: Request, exc: ScheduleError):
+    # Polimorfisme: satu handler untuk ScheduleError dan seluruh turunannya
+    # (404 not found, 409 conflict dengan detail daftar bentrok, 409 kapasitas ruangan).
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.body(),
+    )
+
+
 @app.get("/", tags=["Informasi"])
 def home():
-    return {"message": "Sistem PMB berjalan"}
+    return {"message": "Sistem Informasi Akademik Mini berjalan"}
 
 
 app.include_router(pmb_router)
 app.include_router(krs_router)
+app.include_router(jadwal_router)

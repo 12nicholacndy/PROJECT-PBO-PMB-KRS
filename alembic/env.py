@@ -7,14 +7,18 @@ from app.database import DATABASE_URL
 from app.models import (  # noqa: F401
     Base,
     CalonMahasiswa,
+    Dosen,
+    Jadwal,
     JalurMasuk,
     KRS,
     KRSDetail,
     KRSLog,
+    Kelas,
     MataKuliah,
     NIMSequence,
     Notifikasi,
     ProgramStudi,
+    Ruangan,
     prerequisite_table,
 )
 

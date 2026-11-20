@@ -1,6 +1,6 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4) & Modul KRS (Minggu 5–6)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6) & Jadwal/Ruangan (Minggu 7)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, serta **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**:
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, serta **Modul Jadwal & Ruangan (Minggu 7)** dengan CSP hard constraints dan deteksi bentrok 3 dimensi:
 
 ### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
@@ -36,6 +36,24 @@ Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utu
   - `POST /api/krs/{nim}/{semester}/recommend` *(Challenge +10%)*
 - **ADR & Bukti Indeks:** `docs/ADR_001_KRS_VALIDATION_DESIGN.md` dan `docs/ADR_002_KRS_STATE_MACHINE_AND_CONCURRENCY.md`.
 - **Testing & Property-Based Testing:** `pytest` + `hypothesis` (1000 kombinasi acak SKS + 300 kombinasi jadwal acak dengan oracle independen + 32 kombinasi state machine).
+
+### Ruang Lingkup Modul Jadwal & Ruangan (Minggu 7)
+- **Model Domain Baru & Migrasi Alembic (`d7a1e2f3045b`):**
+  - `ruangan` (`kode` PK, `kapasitas`), `dosen` (`nidn` unik, `nama`), `kelas` (kelas paralel MK per semester, `kuota`), `jadwal` (`CheckConstraint` `jam_mulai < jam_selesai` & `hari BETWEEN 1 AND 6`, 2 composite index `ix_jadwal_hari_ruangan` & `ix_jadwal_hari_dosen`), serta kolom `krs_detail.kelas_id` untuk penghitungan peserta terdaftar.
+- **Detektor Bentrok 3 Dimensi (`app/services/conflict_detector.py`):**
+  - Interval setengah terbuka `[jam_mulai, jam_selesai)` bertipe `datetime.time` (kuliah bersambung `09:40` sah, hanya melaporkan `room_conflict` & `lecturer_conflict`).
+  - Dua versi: Naif (`itertools.combinations`, $O(n^2)$) sebagai *reference oracle* dan Grouping + Sort-and-Sweep ($O(n \log n + k)$ — **2,57 ms** vs **13,70 ms** untuk 600 jadwal).
+- **`SchedulingService` & Error Polimorfik (`app/services/scheduling_service.py`, `app/services/schedule_errors.py`):**
+  - Pessimistic locking urutan tetap `Ruangan -> Dosen` (`with_for_update()`), pencarian bentrok di SQL sebelum `db.add()` (anti autoflush self-conflict; `update` mengecualikan ID sendiri), dan capacity check `max(kelas.kuota, terdaftar) <= ruangan.kapasitas`.
+  - Handler polimorfik tunggal `@app.exception_handler(ScheduleError)` dengan `exc.body()` (`404` / `409` lengkap daftar `conflicts`).
+- **Endpoint Jadwal (`app/routers/jadwal.py`):**
+  - `POST /api/jadwal` — buat jadwal baru (`201`, `400`, `404`, `409`)
+  - `PUT /api/jadwal/{jadwal_id}` — ubah jadwal (`200`, `400`, `404`, `409`)
+  - `DELETE /api/jadwal/{jadwal_id}` — hapus jadwal dalam 1 transaksi (`200`, `404`)
+  - `GET /api/jadwal/conflicts` — daftar seluruh bentrok eksisting (siap untuk dashboard admin Minggu 8)
+  - `GET /api/jadwal` — daftar seluruh jadwal kuliah
+- **Seed Data dengan Bentrok Disengaja:** `py -3.12 -m app.seed_jadwal` (4 jadwal normal termasuk kuliah bersambung + 1 `room_conflict` + 1 `lecturer_conflict`).
+- **ADR & Pengujian:** `docs/ADR_003_SCHEDULING_CSP_AND_CONCURRENCY.md`, 7 kasus parametrized bug-guard, tes API & constraint DB + `EXPLAIN QUERY PLAN`, serta 2 properti Hypothesis (*no-conflict invariant* & *differential testing*).
 
 ---
 
@@ -107,4 +125,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **93 passed**, total coverage **97.14%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **111 passed**, total coverage **97.44%** (melebihi syarat minimum 80%).
