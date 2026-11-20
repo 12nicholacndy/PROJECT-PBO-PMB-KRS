@@ -1,24 +1,73 @@
-%% SEVIMA-Mini — Sequence Diagram PMB (Draft v1 — Output Awal AI sebelum Revisi)
-%% Catatan kelemahan awal AI:
-%% 1. Menggunakan satu participant raksasa "SistemAkademik" (tanda God Object).
-%% 2. Tidak memakai UserFactory untuk pembuatan objek Mahasiswa & NIM.
-%% 3. Pengiriman email notifikasi masih sinkron (memblokir proses Admin).
-%% 4. Hanya menampilkan happy path tanpa alternate flow (berkas tidak lengkap / email gagal).
+%% ============================================================================
+%% SEVIMA-Mini — Final Sequence Diagram: Pendaftaran Mahasiswa Baru (PMB)
+%% Sinkron dengan Class Diagram:
+%%   PMBService, UserFactory, PMBRepository, NotificationService,
+%%   NotificationChannel (DIP & Observer Pattern).
+%% Mencakup: Synchronous call (->>), Asynchronous notification (-)),
+%%   Self-call, Return (-->>), dan Alternate Flow (alt) untuk berkas tidak
+%%   lengkap serta kegagalan pengiriman email.
+%% ============================================================================
 sequenceDiagram
-    actor CalonMahasiswa
-    actor Admin
-    participant SistemAkademik
-    participant Database
+    autonumber
+    actor CalonMahasiswa as Calon Mahasiswa
+    actor Admin as Admin Akademik
+    participant PMBService
+    participant UserFactory
+    participant PMBRepository
+    participant NotificationService
+    participant NotificationChannel
 
-    CalonMahasiswa->>SistemAkademik: daftarPMB(dataFormulir)
-    SistemAkademik->>Database: simpanPendaftar(dataFormulir)
-    Database-->>SistemAkademik: noPendaftaran
-    SistemAkademik-->>CalonMahasiswa: konfirmasiDaftar(noPendaftaran)
+    %% --- Tahap 1: Pendaftaran Online oleh Calon Mahasiswa ---
+    rect rgb(239, 246, 255)
+        Note over CalonMahasiswa,PMBRepository: Tahap 1 — Pendaftaran Calon Mahasiswa Baru
+        CalonMahasiswa->>+PMBService: daftar(formPendaftaran)
+        PMBService->>PMBService: validasiInput(formPendaftaran)
+        alt Data formulir tidak valid / email duplikat
+            PMBService-->>CalonMahasiswa: 400/409 Error ("Field tidak valid atau email sudah terdaftar")
+        else Data formulir valid
+            PMBService->>+PMBRepository: simpanPendaftar(calon, status="PENDING")
+            PMBRepository-->>-PMBService: noPendaftaran
+            PMBService-->>CalonMahasiswa: 201 Created (noPendaftaran, status="PENDING")
+        end
+        deactivate PMBService
+    end
 
-    Admin->>SistemAkademik: verifikasiDanLuluskan(noPendaftaran)
-    SistemAkademik->>SistemAkademik: buatMahasiswaDanNIM()
-    SistemAkademik->>Database: simpanMahasiswa(mahasiswa)
-    Database-->>SistemAkademik: ok
-    SistemAkademik->>CalonMahasiswa: kirimEmailNIM(nim, akun)
-    CalonMahasiswa-->>SistemAkademik: emailTerkirim
-    SistemAkademik-->>Admin: statusLulus
+    %% --- Tahap 2: Verifikasi Berkas & Kelulusan oleh Admin ---
+    rect rgb(240, 253, 244)
+        Note over Admin,NotificationChannel: Tahap 2 — Verifikasi Berkas, Factory NIM & Notifikasi Asinkron
+        Admin->>+PMBService: verifikasiDanPutuskan(noPendaftaran, hasilVerifikasi)
+        PMBService->>+PMBRepository: findByNoPendaftaran(noPendaftaran)
+        PMBRepository-->>-PMBService: calonMahasiswa
+
+        alt Berkas tidak lengkap atau tidak lulus seleksi
+            PMBService->>+PMBRepository: updateStatus(calonMahasiswa, "REJECTED")
+            PMBRepository-->>-PMBService: updated
+            PMBService-)NotificationService: publishEvent(PMBRejectedEvent(calon, catatan))
+            PMBService-->>Admin: 200 OK (status="REJECTED", catatanKekurangan)
+            activate NotificationService
+            NotificationService->>+NotificationChannel: send(calon.email, "Berkas PMB Tidak Lengkap", catatan)
+            NotificationChannel-->>-NotificationService: deliveryStatus
+            deactivate NotificationService
+        else Berkas lengkap dan dinyatakan lulus
+            PMBService->>+UserFactory: createUser("MAHASISWA", calonMahasiswa)
+            UserFactory->>UserFactory: generateNIM(tahun, kodeProdi)
+            UserFactory-->>-PMBService: mahasiswa (dengan NIM unik)
+            PMBService->>+PMBRepository: simpanMahasiswaDanUpdateStatus(mahasiswa, "APPROVED")
+            PMBRepository-->>-PMBService: savedMahasiswa
+            PMBService-)NotificationService: publishEvent(PMBApprovedEvent(mahasiswa, nim))
+            PMBService-->>Admin: 200 OK (status="APPROVED", nim)
+
+            activate NotificationService
+            NotificationService->>+NotificationChannel: send(mahasiswa.email, "Selamat Lulus PMB", nimDanAkun)
+            alt Pengiriman email berhasil
+                NotificationChannel-->>NotificationService: 200 Sent
+                NotificationService-)CalonMahasiswa: Email berisi NIM & informasi aktivasi akun
+            else Pengiriman email gagal (SMTP / jaringan bermasalah)
+                NotificationChannel-->>NotificationService: DeliveryFailedError
+                NotificationService->>NotificationService: logErrorDanJadwalkanRetry(event)
+            end
+            deactivate NotificationChannel
+            deactivate NotificationService
+        end
+        deactivate PMBService
+    end

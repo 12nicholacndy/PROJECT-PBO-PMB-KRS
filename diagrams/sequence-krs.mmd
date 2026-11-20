@@ -1,22 +1,54 @@
-%% SEVIMA-Mini — Sequence Diagram Validasi KRS (Draft v1 — Output Awal AI sebelum Revisi)
-%% Catatan kelemahan awal AI:
-%% 1. Semua logika menumpuk di satu participant "SistemAkademik" (God Object).
-%% 2. Tidak ada fragmen loop untuk memeriksa prasyarat setiap mata kuliah.
-%% 3. Tidak ada alternate flow (alt) untuk kasus gagal (prasyarat, SKS > 24, jadwal bentrok).
-%% 4. Notifikasi ke Dosen PA masih sinkron sehingga memblokir respon ke Mahasiswa.
+%% ============================================================================
+%% SEVIMA-Mini — Final Sequence Diagram: Validasi & Submit KRS
+%% Sinkron dengan Class Diagram:
+%%   KRSManager, KRSValidator, AcademicRepository, NotificationService.
+%% Mencakup:
+%%   - Fragmen loop untuk memeriksa prasyarat setiap mata kuliah
+%%   - Self-call untuk hitung total SKS (maks. 24) & cek jadwal bentrok
+%%   - Fragmen alt 4 cabang (prasyarat gagal, SKS > 24, jadwal bentrok, lolos)
+%%   - Pesan error spesifik & actionable (mengumpulkan semua error sekaligus)
+%%   - Pesan asinkron (-)) ke NotificationService agar Mahasiswa tidak menunggu
+%% ============================================================================
 sequenceDiagram
+    autonumber
     actor Mahasiswa
-    participant SistemAkademik
-    participant Database
-    actor DosenPA
+    participant KRSManager
+    participant KRSValidator
+    participant AcademicRepository
+    participant NotificationService
+    actor DosenPA as Dosen PA
 
-    Mahasiswa->>SistemAkademik: submitKRS(daftarMK)
-    SistemAkademik->>Database: cekPrasyarat(daftarMK)
-    Database-->>SistemAkademik: valid
-    SistemAkademik->>SistemAkademik: cekBatasSKS(daftarMK)
-    SistemAkademik->>SistemAkademik: cekJadwalBentrok(daftarMK)
-    SistemAkademik->>Database: simpanKRS(status="PENDING_APPROVAL")
-    Database-->>SistemAkademik: tersimpan
-    SistemAkademik->>DosenPA: kirimNotifikasiApproval(krs)
-    DosenPA-->>SistemAkademik: diterima
-    SistemAkademik-->>Mahasiswa: krsBerhasilDisubmit
+    Mahasiswa->>+KRSManager: submitKRS(nim, semester, daftarMK)
+    KRSManager->>+KRSValidator: validateAll(krs, daftarMK)
+    Note over KRSValidator: Mengumpulkan semua kesalahan sekaligus (tidak berhenti di error pertama)
+
+    loop Untuk setiap mata kuliah (mk) dalam daftarMK
+        KRSValidator->>+AcademicRepository: getPrasyaratDanRiwayatNilai(nim, mk)
+        AcademicRepository-->>-KRSValidator: daftarPrasyarat, riwayatNilai
+        KRSValidator->>KRSValidator: cekPrasyaratLulus(mk, daftarPrasyarat, riwayatNilai)
+    end
+
+    KRSValidator->>KRSValidator: hitungDanCekTotalSKS(daftarMK, maxSKS=24)
+
+    KRSValidator->>+AcademicRepository: getJadwalDaftarMK(daftarMK)
+    AcademicRepository-->>-KRSValidator: daftarJadwal
+    KRSValidator->>KRSValidator: cekJadwalBentrok(daftarJadwal)
+
+    KRSValidator-->>-KRSManager: validationResult(isValid, listErrors)
+
+    alt Prasyarat mata kuliah belum lulus
+        KRSManager-->>Mahasiswa: 422 Ditolak ("Prasyarat belum lulus: Algoritma & Pemrograman untuk MK Struktur Data")
+    else Total SKS melebihi batas maksimal (> 24 SKS)
+        KRSManager-->>Mahasiswa: 422 Ditolak ("Total SKS Anda 26, melebihi batas maksimal 24 SKS")
+    else Jadwal mata kuliah bentrok
+        KRSManager-->>Mahasiswa: 422 Ditolak ("Jadwal bentrok: Basis Data & Jaringan Komputer pada Senin 08:00-10:00")
+    else Semua validasi lolos (listErrors kosong)
+        KRSManager->>+AcademicRepository: simpanKRS(krs, status="PENDING_APPROVAL")
+        AcademicRepository-->>-KRSManager: savedKRS
+        KRSManager-)NotificationService: publishEvent(KRSSubmittedEvent(krs))
+        KRSManager-->>Mahasiswa: 200 OK ("KRS terkirim dan menunggu persetujuan Dosen PA")
+        activate NotificationService
+        NotificationService-)DosenPA: Kirim notifikasi permintaan approval KRS
+        deactivate NotificationService
+    end
+    deactivate KRSManager
