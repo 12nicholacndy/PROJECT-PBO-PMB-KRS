@@ -1,30 +1,74 @@
-%% SEVIMA-Mini — Use Case Diagram (Draft v1 — Output Awal AI sebelum Revisi)
-%% Catatan kelemahan awal AI untuk bahan perbandingan Before-After:
-%% 1. Aktor eksternal Sistem PMB & use case pendaftaran/verifikasi berkas belum lengkap.
-%% 2. Terdapat use case detail antarmuka ("Klik Tombol Simpan") yang bukan tujuan bisnis.
-%% 3. Arah panah <<extend>> terbalik (seharusnya dari extension ke base).
+%% ============================================================================
+%% SEVIMA-Mini — Final Use Case Diagram (Minggu 2: Validated & Refined)
+%% Aktor: Calon Mahasiswa, Mahasiswa, Dosen PA, Dosen Pengampu, Admin Akademik,
+%%        dan Sistem PMB (aktor non-manusia/eksternal).
+%% Relasi:
+%%   - <<include>> : panah dari Use Case Dasar --> Use Case Wajib (selalu jalan)
+%%   - <<extend>>  : panah dari Use Case Tambahan --> Use Case Dasar (kondisional)
+%% ============================================================================
 flowchart LR
-    Mahasiswa([Mahasiswa])
-    Dosen([Dosen])
-    Admin([Admin])
+    %% --- Aktor di Luar System Boundary (berdasarkan peran) ---
+    CalonMhs["«actor»<br/>Calon Mahasiswa"]:::actor
+    SistemPMB["«system»<br/>Sistem PMB"]:::extSystem
+    Admin["«actor»<br/>Admin Akademik"]:::actor
+    Mahasiswa["«actor»<br/>Mahasiswa"]:::actor
+    DosenPA["«actor»<br/>Dosen PA"]:::actor
+    DosenPengampu["«actor»<br/>Dosen Pengampu"]:::actor
 
-    subgraph SEVIMA["SEVIMA-Mini"]
-        UC1([Isi KRS])
-        UC2([Klik Tombol Simpan KRS])
-        UC3([Cek Prasyarat])
-        UC4([Approve KRS])
-        UC5([Ajukan Revisi KRS])
-        UC6([Input Nilai])
-        UC7([Generate Transkrip])
+    %% --- System Boundary SEVIMA-Mini ---
+    subgraph SEVIMA_Mini["SEVIMA-Mini (System Boundary)"]
+        direction TB
+
+        %% Modul PMB
+        UC_Daftar(["Daftar sebagai Calon Mahasiswa"]):::ucMain
+        UC_Verif(["Verifikasi Berkas PMB"]):::ucInclude
+        UC_LulusPMB(["Tetapkan Kelulusan & Generate NIM"]):::ucMain
+
+        %% Modul KRS
+        UC_IsiKRS(["Isi KRS"]):::ucMain
+        UC_Prasyarat(["Cek Prasyarat Mata Kuliah"]):::ucInclude
+        UC_SKS(["Cek Batas SKS (Maks. 24)"]):::ucInclude
+        UC_Bentrok(["Cek Jadwal Bentrok"]):::ucInclude
+        UC_ApproveKRS(["Approve KRS"]):::ucMain
+        UC_RevisiKRS(["Ajukan Revisi KRS"]):::ucExtend
+
+        %% Modul Nilai & Transkrip
+        UC_InputNilai(["Input Nilai"]):::ucMain
+        UC_Transkrip(["Generate Transkrip"]):::ucMain
+
+        %% Modul Keuangan / SPP
+        UC_BayarSPP(["Bayar SPP"]):::ucMain
+        UC_Denda(["Bayar Denda Keterlambatan"]):::ucExtend
     end
 
-    Mahasiswa --- UC1
-    Mahasiswa --- UC2
-    Mahasiswa --- UC7
-    Dosen --- UC4
-    Dosen --- UC6
-    Admin --- UC7
+    %% --- Asosiasi Aktor dengan Use Case ---
+    CalonMhs --- UC_Daftar
+    SistemPMB --- UC_Daftar
+    SistemPMB --- UC_Verif
+    Admin --- UC_Verif
+    Admin --- UC_LulusPMB
 
-    UC1 -. "<<include>>" .-> UC3
-    %% SALAH ARAH (kesalahan umum AI): extend ditarik dari base ke extension
-    UC4 -. "<<extend>>" .-> UC5
+    Mahasiswa --- UC_IsiKRS
+    Mahasiswa --- UC_Transkrip
+    Mahasiswa --- UC_BayarSPP
+
+    DosenPA --- UC_ApproveKRS
+    DosenPengampu --- UC_InputNilai
+
+    %% --- Relasi <<include>> (Base --> Included: langkah wajib) ---
+    UC_LulusPMB -. "«include»" .-> UC_Verif
+    UC_IsiKRS -. "«include»" .-> UC_Prasyarat
+    UC_IsiKRS -. "«include»" .-> UC_SKS
+    UC_IsiKRS -. "«include»" .-> UC_Bentrok
+
+    %% --- Relasi <<extend>> (Extension --> Base: perilaku kondisional) ---
+    UC_RevisiKRS -. "«extend»<br/>[KRS ditolak Dosen PA]" .-> UC_ApproveKRS
+    UC_Denda -. "«extend»<br/>[lewat jatuh tempo]" .-> UC_BayarSPP
+
+    %% --- Styling ---
+    classDef actor fill:#f8fafc,stroke:#1e293b,stroke-width:2px,color:#0f172a,font-weight:bold
+    classDef extSystem fill:#fef3c7,stroke:#b45309,stroke-width:2px,color:#78350f,font-weight:bold
+    classDef ucMain fill:#eff6ff,stroke:#2563eb,stroke-width:1.8px,color:#1e3a8a
+    classDef ucInclude fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+    classDef ucExtend fill:#fffbeb,stroke:#d97706,stroke-width:1.5px,color:#92400e
+    style SEVIMA_Mini fill:#ffffff,stroke:#334155,stroke-width:2px,stroke-dasharray:6 4,color:#0f172a
