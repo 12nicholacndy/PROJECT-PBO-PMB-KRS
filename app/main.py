@@ -1,20 +1,34 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.routers.admin_ui import router as admin_ui_router
 from app.routers.jadwal import router as jadwal_router
 from app.routers.krs import router as krs_router
 from app.routers.pmb import router as pmb_router
 from app.services.krs_errors import KRSError
 from app.services.schedule_errors import ScheduleError
+from app.services.schedule_observers import init_default_schedule_subject
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Observer dirangkai SEKALI saat aplikasi start untuk mencegah memory leak & notifikasi ganda.
+    init_default_schedule_subject()
+    yield
+
 
 app = FastAPI(
     title="Sistem Informasi Akademik Mini (PMB, KRS & Jadwal)",
     description=(
         "API Modul PMB (Minggu 3–4), Modul KRS dengan State Machine & CSP (Minggu 5–6), "
-        "dan Modul Jadwal & Ruangan dengan Deteksi Bentrok 3D (Minggu 7)"
+        "dan Modul Jadwal & Ruangan dengan Deteksi Bentrok 3D, Observer/Outbox, "
+        "AI Rescheduler, Conflict Resolver UI & iCalendar (Minggu 7–8)"
     ),
-    version="2.1.0",
+    version="2.2.0",
+    lifespan=lifespan,
 )
 
 
@@ -64,3 +78,4 @@ def home():
 app.include_router(pmb_router)
 app.include_router(krs_router)
 app.include_router(jadwal_router)
+app.include_router(admin_ui_router)

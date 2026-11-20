@@ -230,10 +230,14 @@ def jadwal_env(db):
     return db
 
 
+ADMIN_HEADERS = {"X-Role": "admin_akademik"}
+
+
 def test_api_create_success_and_back_to_back_allowed(client, jadwal_env):
     # Kapasitas tepat 40 <= 40 di A101 -> harus diterima (201)
     res1 = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -249,6 +253,7 @@ def test_api_create_success_and_back_to_back_allowed(client, jadwal_env):
     # Kuliah bersambung tepat 09:40 di ruangan & dosen sama -> harus diterima (201)
     res2 = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 2,
             "ruangan_kode": "A101",
@@ -264,6 +269,7 @@ def test_api_create_success_and_back_to_back_allowed(client, jadwal_env):
 def test_api_create_room_conflict_returns_409_with_detail(client, jadwal_env):
     res1 = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -277,6 +283,7 @@ def test_api_create_room_conflict_returns_409_with_detail(client, jadwal_env):
 
     res2 = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 2,
             "ruangan_kode": "A101",
@@ -297,6 +304,7 @@ def test_api_create_room_conflict_returns_409_with_detail(client, jadwal_env):
 def test_api_create_lecturer_and_both_conflicts_return_409(client, jadwal_env):
     res1 = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -311,6 +319,7 @@ def test_api_create_lecturer_and_both_conflicts_return_409(client, jadwal_env):
     # Bentrok dosen saja (ruangan berbeda)
     res_dosen = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 2,
             "ruangan_kode": "B201",
@@ -328,6 +337,7 @@ def test_api_create_lecturer_and_both_conflicts_return_409(client, jadwal_env):
     # Bentrok ruangan DAN dosen sekaligus
     res_both = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 2,
             "ruangan_kode": "A101",
@@ -346,6 +356,7 @@ def test_api_capacity_check_kuota_and_enrolled(client, jadwal_env):
     # Kelas 3 berkuota 50 dimasukkan ke A101 (kapasitas 40) walau enrolled == 0 -> 409
     res_kuota = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 3,
             "ruangan_kode": "A101",
@@ -386,6 +397,7 @@ def test_api_capacity_check_kuota_and_enrolled(client, jadwal_env):
 
     res_enrolled = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 2,
             "ruangan_kode": "A102",
@@ -402,6 +414,7 @@ def test_api_capacity_check_kuota_and_enrolled(client, jadwal_env):
 def test_api_update_shift_15_minutes_no_self_conflict_and_delete(client, jadwal_env):
     res = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -416,6 +429,7 @@ def test_api_update_shift_15_minutes_no_self_conflict_and_delete(client, jadwal_
     # Menggeser jadwal sendiri 15 menit (08:15-09:55) TIDAK boleh dianggap bentrok dengan diri sendiri
     res_update = client.put(
         f"/api/jadwal/{jadwal_id}",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -434,18 +448,24 @@ def test_api_update_shift_15_minutes_no_self_conflict_and_delete(client, jadwal_
     assert len(res_list.json()) == 1
 
     # Delete jadwal berhasil
-    res_del = client.delete(f"/api/jadwal/{jadwal_id}")
+    res_del = client.delete(f"/api/jadwal/{jadwal_id}", headers=ADMIN_HEADERS)
     assert res_del.status_code == 200
     assert res_del.json()["deleted_id"] == jadwal_id
 
     # Delete ulang -> 404
-    assert client.delete(f"/api/jadwal/{jadwal_id}").status_code == 404
+    assert (
+        client.delete(
+            f"/api/jadwal/{jadwal_id}", headers=ADMIN_HEADERS
+        ).status_code
+        == 404
+    )
 
 
 def test_api_validation_and_not_found_errors(client, jadwal_env):
     # jam_selesai <= jam_mulai ditolak Pydantic (global handler -> 400)
     res_bad_time = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -460,6 +480,7 @@ def test_api_validation_and_not_found_errors(client, jadwal_env):
     # hari=7 di luar 1..6
     res_bad_day = client.post(
         "/api/jadwal",
+        headers=ADMIN_HEADERS,
         json={
             "kelas_id": 1,
             "ruangan_kode": "A101",
@@ -475,6 +496,7 @@ def test_api_validation_and_not_found_errors(client, jadwal_env):
     assert (
         client.post(
             "/api/jadwal",
+            headers=ADMIN_HEADERS,
             json={
                 "kelas_id": 999,
                 "ruangan_kode": "A101",
@@ -489,6 +511,7 @@ def test_api_validation_and_not_found_errors(client, jadwal_env):
     assert (
         client.post(
             "/api/jadwal",
+            headers=ADMIN_HEADERS,
             json={
                 "kelas_id": 1,
                 "ruangan_kode": "Z999",
@@ -503,6 +526,7 @@ def test_api_validation_and_not_found_errors(client, jadwal_env):
     assert (
         client.post(
             "/api/jadwal",
+            headers=ADMIN_HEADERS,
             json={
                 "kelas_id": 1,
                 "ruangan_kode": "A101",
@@ -517,6 +541,7 @@ def test_api_validation_and_not_found_errors(client, jadwal_env):
     assert (
         client.put(
             "/api/jadwal/999",
+            headers=ADMIN_HEADERS,
             json={
                 "kelas_id": 1,
                 "ruangan_kode": "A101",
@@ -536,7 +561,7 @@ def test_seed_with_intentional_conflicts_and_get_conflicts_endpoint(client, db):
     # Memanggil seed ulang bersifat idempoten
     assert seed_jadwal_minggu7(db)["seeded"] == 0
 
-    res = client.get("/api/jadwal/conflicts")
+    res = client.get("/api/jadwal/conflicts", headers=ADMIN_HEADERS)
     assert res.status_code == 200
     body = res.json()
     assert body["total"] == 2

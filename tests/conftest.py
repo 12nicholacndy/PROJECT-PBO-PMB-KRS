@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, JalurMasuk, ProgramStudi
+from app.services.schedule_observers import reset_default_schedule_subject
 
 TEST_DATABASE_URL = "sqlite://"
 
@@ -56,6 +57,7 @@ def db():
     finally:
         session.close()
         Base.metadata.drop_all(bind=test_engine)
+        reset_default_schedule_subject()
 
 
 @pytest.fixture()

@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
 from enum import Enum
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Table,
     Time,
@@ -20,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.services.krs_errors import KRSTransitionError
+from app.services.schedule_events import ScheduleEvent
 
 
 class Base(DeclarativeBase):
@@ -42,9 +45,17 @@ class KRSStatus(str, Enum):
 class KRSAktor(str, Enum):
     MAHASISWA = "mahasiswa"
     DOSEN_PA = "dosen_pa"
+    SISTEM = "sistem"
+
+
+class OutboxStatus(str, Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
 
 
 # Tabel transisi resmi state machine KRS: (state_asal, aktor) -> himpunan state tujuan sah.
+# Minggu 8 menambahkan aktor SISTEM untuk invalidasi KRS terdampak perubahan jadwal.
 KRS_TRANSITIONS: dict[tuple[KRSStatus, KRSAktor], set[KRSStatus]] = {
     (KRSStatus.DRAFT, KRSAktor.MAHASISWA): {KRSStatus.SUBMITTED},
     (KRSStatus.SUBMITTED, KRSAktor.DOSEN_PA): {
@@ -52,6 +63,8 @@ KRS_TRANSITIONS: dict[tuple[KRSStatus, KRSAktor], set[KRSStatus]] = {
         KRSStatus.REVISION,
     },
     (KRSStatus.REVISION, KRSAktor.MAHASISWA): {KRSStatus.SUBMITTED},
+    (KRSStatus.SUBMITTED, KRSAktor.SISTEM): {KRSStatus.REVISION},
+    (KRSStatus.APPROVED, KRSAktor.SISTEM): {KRSStatus.REVISION},
 }
 
 
@@ -329,6 +342,9 @@ class Jadwal(Base):
     hari: Mapped[int] = mapped_column(Integer, nullable=False)
     jam_mulai: Mapped[time] = mapped_column(Time, nullable=False)
     jam_selesai: Mapped[time] = mapped_column(Time, nullable=False)
+    sequence: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     kelas: Mapped["Kelas"] = relationship(back_populates="jadwals")
     ruangan: Mapped["Ruangan"] = relationship(back_populates="jadwals")
@@ -336,7 +352,7 @@ class Jadwal(Base):
 
 
 class KRSLog(Base):
-    """Audit trail setiap perubahan status KRS (submit, approve, revise)."""
+    """Audit trail setiap perubahan status KRS (submit, approve, revise, invalidate)."""
 
     __tablename__ = "krs_log"
 
@@ -358,7 +374,7 @@ class KRSLog(Base):
 
 
 class Notifikasi(Base):
-    """Notifikasi yang dicatat secara atomik di database (siap untuk Observer Pattern)."""
+    """Kotak masuk notifikasi mahasiswa (dipertahankan dari Minggu 6; event jadwal dicatat di outbox_events)."""
 
     __tablename__ = "notifikasi"
 
@@ -374,3 +390,59 @@ class Notifikasi(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.current_timestamp()
     )
+
+
+class OutboxEvent(Base):
+    """
+    Transactional Outbox (Minggu 8): menyimpan event perubahan jadwal di dalam
+    transaksi database yang sama agar tidak ada notifikasi untuk commit yang batal
+    dan tidak ada perubahan jadwal yang kehilangan event.
+    """
+
+    __tablename__ = "outbox_events"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'sent', 'failed')",
+            name="ck_outbox_events_status",
+        ),
+        CheckConstraint("attempts >= 0", name="ck_outbox_events_attempts_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[OutboxStatus] = mapped_column(
+        SAEnum(
+            OutboxStatus,
+            name="outbox_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=OutboxStatus.PENDING,
+        server_default=OutboxStatus.PENDING.value,
+        index=True,
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    @classmethod
+    def from_event(cls, event: ScheduleEvent) -> "OutboxEvent":
+        return cls(
+            event_id=event.event_id,
+            event_type=event.event_type.value,
+            payload=event.to_payload(),
+            status=OutboxStatus.PENDING,
+            attempts=0,
+        )
+
+    def to_event(self) -> ScheduleEvent:
+        return ScheduleEvent.from_payload(self.event_id, self.payload)

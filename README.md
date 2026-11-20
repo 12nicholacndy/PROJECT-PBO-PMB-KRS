@@ -1,6 +1,6 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6) & Jadwal/Ruangan (Minggu 7)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6) & Jadwal/Ruangan (Minggu 7–8)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, serta **Modul Jadwal & Ruangan (Minggu 7)** dengan CSP hard constraints dan deteksi bentrok 3 dimensi:
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, serta **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)** mencakup deteksi bentrok 3 dimensi, Observer Pattern + Transactional Outbox, integrasi invalidasi KRS, AI Rescheduler dengan 4 lapis guardrail, Conflict Resolver UI, dan ekspor iCalendar (`.ics`):
 
 ### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
@@ -55,6 +55,24 @@ Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utu
 - **Seed Data dengan Bentrok Disengaja:** `py -3.12 -m app.seed_jadwal` (4 jadwal normal termasuk kuliah bersambung + 1 `room_conflict` + 1 `lecturer_conflict`).
 - **ADR & Pengujian:** `docs/ADR_003_SCHEDULING_CSP_AND_CONCURRENCY.md`, 7 kasus parametrized bug-guard, tes API & constraint DB + `EXPLAIN QUERY PLAN`, serta 2 properti Hypothesis (*no-conflict invariant* & *differential testing*).
 
+### Ruang Lingkup Modul Jadwal & Ruangan — Bagian 2 (Minggu 8)
+- **Migrasi Alembic (`e8b4c9d1023a`):** tabel `outbox_events` (`event_id` unik, `payload` JSON, `status` `pending`/`sent`/`failed`, `attempts`, `last_error`, `processed_at`) dan kolom `jadwal.sequence` (default `0`, naik setiap `update()`).
+- **Observer Pattern + 3 Kanal Simulasi (`app/services/schedule_events.py`, `app/services/schedule_observers.py`):**
+  - `ScheduleEvent` (`@dataclass(frozen=True)`) bertipe `schedule_changed` / `schedule_deleted`.
+  - `ScheduleSubject` (anti duplikasi `attach`, iterasi salinan, `try/except` per observer) dirangkai **sekali saat aplikasi start** (`lifespan` di `app/main.py`).
+  - 3 observer konkret: `StudentObserver`, `LecturerObserver` (memberitahu dosen baru **dan** dosen lama bila diganti), dan `AdminObserver`, masing-masing mengirim lewat 3 `LogChannel` (`email`, `sms`, `push`) dengan kunci idempotensi.
+- **Transactional Outbox (`app/services/outbox.py`):**
+  - `SchedulingService.update()` & `delete()` menulis perubahan jadwal + invalidasi KRS + baris `outbox_events` dalam **1 transaksi atomik**, lalu menjalankan `OutboxDispatcher.run()` (`with_for_update(skip_locked=True)`, retry hingga 5x → `failed`) **setelah `commit()`**.
+- **Integrasi KRS (`app/services/krs_invalidator.py`, `app/models.py`):**
+  - Menambah `KRSAktor.SISTEM` + 2 transisi resmi (`SUBMITTED -> REVISION`, `APPROVED -> REVISION`) lewat satu pintu `krs.transition()`; test state machine Minggu 6 diperbarui menjadi **48 kombinasi (6 sah, 42 ilegal)**.
+- **AI Rescheduler + 4 Lapis Guardrail & Conflict Resolver UI (`app/services/ai_rescheduler.py`, `app/routers/admin_ui.py`, `app/templates/conflict_resolver.html`):**
+  - Daftar slot tersedia dihitung di kode memakai `detect_schedule_conflict()` Minggu 7; abstraksi `LLMClient` (Gemini Flash / OpenRouter via env var, fallback offline deterministik, serta `FakeLLMClient` untuk test).
+  - 4 lapis saringan: Parsing JSON → Skema Pydantic `SaranJadwal` → Ruangan & kapasitas DB → Deteksi bentrok 3D `id=-1` (maks. 3 saran).
+  - Dashboard admin di `GET /admin/conflict-resolver` dengan proteksi header `X-Role: admin_akademik` pada endpoint admin (`403` untuk non-admin) dan tombol **Terapkan** satu pintu ke `PUT /api/jadwal/{id}`.
+- **Ekspor iCalendar (`app/services/ical_exporter.py`):**
+  - `GET /api/jadwal/export.ics` (filter opsional `?nim=`, `?semester=`, `?semester_start=`, `?semester_end=`) berformat RFC 5545 (CRLF `\r\n`, `UID` stabil `jadwal-{id}@sevima-mini`, `RRULE` dengan `UNTIL` UTC `Z`, dan `SEQUENCE` yang naik saat jadwal diubah).
+- **Dokumentasi Wajib:** UML Sequence Diagram Mermaid di `docs/SEQUENCE_OBSERVER_PATTERN.md` dan `docs/ADR_004_OBSERVER_OUTBOX_AI_RESCHEDULING.md`.
+
 ---
 
 ## Keputusan Desain Minggu 4
@@ -99,7 +117,7 @@ py -3.12 -m alembic check
 py -3.12 -m uvicorn app.main:app --reload
 ```
 
-Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI.
+Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, atau buka `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin.
 
 ## 4. Data Referensi (Seed Awal)
 
@@ -125,4 +143,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **111 passed**, total coverage **97.44%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **138 passed**, total coverage **95.64%** (melebihi syarat minimum 80%).

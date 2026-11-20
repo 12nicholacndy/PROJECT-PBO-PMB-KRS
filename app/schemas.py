@@ -240,6 +240,7 @@ class JadwalResponse(BaseModel):
     hari: int
     jam_mulai: time
     jam_selesai: time
+    sequence: int = 0
 
 
 class ConflictItemResponse(BaseModel):
@@ -255,4 +256,45 @@ class ConflictListResponse(BaseModel):
 class DeleteJadwalResponse(BaseModel):
     deleted_id: int
     message: str
+
+
+class AISuggestionItemResponse(BaseModel):
+    hari: int
+    jam_mulai: time
+    jam_selesai: time
+    ruangan_kode: str
+    alasan: str
+
+
+class AISuggestionListResponse(BaseModel):
+    jadwal_id: int
+    kelas_id: int
+    dosen_id: int
+    available_slots_count: int
+    suggestions: list[AISuggestionItemResponse]
+
+
+class OutboxEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_id: str
+    event_type: str
+    status: str
+    attempts: int
+    last_error: str | None = None
+    created_at: datetime
+    processed_at: datetime | None = None
+
+
+class NotificationLogResponse(BaseModel):
+    channel: str
+    recipient: str
+    key: str
+    message: str
+
+
+class OutboxAuditResponse(BaseModel):
+    events: list[OutboxEventResponse]
+    recent_channel_logs: list[NotificationLogResponse]
 

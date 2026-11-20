@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conflict Resolver Dashboard — SEVIMA Mini</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --border: #dde3ec;
+      --text: #1c2434;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --danger: #dc2626;
+      --warn: #d97706;
+      --success: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    header h1 { margin: 0; font-size: 1.2rem; }
+    header p { margin: 2px 0 0; font-size: 0.85rem; color: #cbd5e1; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    button, a.btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 0.88rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    button.secondary, a.btn.secondary { background: #334155; }
+    button.apply { background: var(--success); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    main {
+      max-width: 1120px;
+      margin: 24px auto;
+      padding: 0 16px 40px;
+      display: grid;
+      gap: 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .card h2 { margin: 0 0 12px; font-size: 1.05rem; }
+    .banner {
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+    }
+    .banner.info { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; display: block; }
+    .banner.error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; display: block; }
+    .banner.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; display: block; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge.room_conflict { background: #fee2e2; color: #b91c1c; }
+    .badge.lecturer_conflict { background: #fef3c7; color: #b45309; }
+    .badge.sent { background: #dcfce7; color: #15803d; }
+    .badge.pending { background: #e0f2fe; color: #0369a1; }
+    .badge.failed { background: #fee2e2; color: #b91c1c; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { color: var(--muted); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; }
+    .suggestion-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .suggestion-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .muted { color: var(--muted); font-size: 0.86rem; }
+    pre.log-box {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      max-height: 220px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Conflict Resolver Dashboard (Admin Akademik)</h1>
+      <p>Deteksi bentrok 3D, rekomendasi AI dengan 4 lapis guardrail, dan eksekusi satu pintu via PUT /api/jadwal/{id}</p>
+    </div>
+    <div class="actions">
+      <button onclick="loadDashboard()">Muat Ulang Konflik</button>
+      <a class="btn secondary" href="/api/jadwal/export.ics">Unduh Kalender (.ics)</a>
+    </div>
+  </header>
+
+  <main>
+    <div id="status-banner" class="banner"></div>
+
+    <section class="card">
+      <h2>1. Daftar Konflik Jadwal Aktif</h2>
+      <div id="conflicts-container" class="muted">Memuat data konflik...</div>
+    </section>
+
+    <section class="card">
+      <h2>2. Saran Penjadwalan Ulang AI (Tervalidasi 4 Lapis)</h2>
+      <div id="suggestions-container" class="muted">
+        Pilih salah satu jadwal yang bentrok pada tabel di atas lalu klik <strong>Minta Saran AI</strong>.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Audit Transactional Outbox &amp; Log Kanal Notifikasi (Email / SMS / Push)</h2>
+      <div id="outbox-container" class="muted">Memuat audit outbox...</div>
+    </section>
+  </main>
+
+  <script>
+    const HARI_NAMA = { 1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat", 6: "Sabtu" };
+    const ADMIN_HEADERS = { "X-Role": "admin_akademik", "Content-Type": "application/json" };
+    let jadwalById = {};
+    let currentSuggestionContext = null;
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function showBanner(type, text) {
+      const el = document.getElementById("status-banner");
+      el.className = "banner " + type;
+      el.textContent = text;
+    }
+
+    function formatSlot(j) {
+      if (!j) return "-";
+      const hari = HARI_NAMA[j.hari] || ("Hari " + j.hari);
+      return `${hari} ${j.jam_mulai.slice(0, 5)}-${j.jam_selesai.slice(0, 5)} | Ruang ${j.ruangan_kode} | Dosen #${j.dosen_id} | Kelas #${j.kelas_id}`;
+    }
+
+    async function loadDashboard() {
+      try {
+        const [jadwalRes, conflictRes, outboxRes] = await Promise.all([
+          fetch("/api/jadwal"),
+          fetch("/api/jadwal/conflicts", { headers: ADMIN_HEADERS }),
+          fetch("/api/jadwal/outbox?limit=15", { headers: ADMIN_HEADERS }),
+        ]);
+
+        if (!conflictRes.ok) {
+          showBanner("error", "Gagal memuat daftar konflik (pastikan peran admin_akademik).");
+          return;
+        }
+
+        const jadwals = await jadwalRes.json();
+        jadwalById = {};
+        jadwals.forEach(j => { jadwalById[j.id] = j; });
+
+        const conflictData = await conflictRes.json();
+        renderConflicts(conflictData.conflicts || []);
+
+        if (outboxRes.ok) {
+          const outboxData = await outboxRes.json();
+          renderOutbox(outboxData);
+        }
+      } catch (err) {
+        showBanner("error", "Terjadi kesalahan jaringan: " + err.message);
+      }
+    }
+
+    function renderConflicts(conflicts) {
+      const container = document.getElementById("conflicts-container");
+      if (!conflicts.length) {
+        container.innerHTML = "<p class='muted'>Tidak ada bentrok jadwal aktif saat ini.</p>";
+        return;
+      }
+      let rows = "";
+      conflicts.forEach(c => {
+        const involvedHtml = c.affected.map(id => {
+          const j = jadwalById[id];
+          return `
+            <div style="margin-bottom:6px;">
+              <strong>Jadwal #${id}</strong>: ${formatSlot(j)}
+              <button style="margin-left:8px; padding:4px 10px; font-size:0.8rem;" onclick="requestSuggestions(${id})">
+                Minta Saran AI
+              </button>
+            </div>
+          `;
+        }).join("");
+        rows += `
+          <tr>
+            <td><span class="badge ${c.type}">${c.type}</span></td>
+            <td>${involvedHtml}</td>
+          </tr>
+        `;
+      });
+      container.innerHTML = `
+        <table>
+          <thead><tr><th>Tipe Bentrok</th><th>Jadwal Terlibat &amp; Aksi</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    async function requestSuggestions(jadwalId) {
+      const container = document.getElementById("suggestions-container");
+      container.innerHTML = `<p class="muted">Meminta saran AI &amp; menyaring dengan 4 lapis guardrail untuk Jadwal #${jadwalId}...</p>`;
+      try {
+        const res = await fetch(`/api/jadwal/${jadwalId}/suggest`, {
+          method: "POST",
+          headers: ADMIN_HEADERS,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showBanner("error", data.detail || "Gagal meminta saran AI.");
+          return;
+        }
+        renderSuggestions(data);
+      } catch (err) {
+        showBanner("error", "Gagal menghubungi endpoint saran AI: " + err.message);
+      }
+    }
+
+    function renderSuggestions(data) {
+      const container = document.getElementById("suggestions-container");
+      const current = jadwalById[data.jadwal_id];
+      currentSuggestionContext = data;
+      if (!data.suggestions || !data.suggestions.length) {
+        container.innerHTML = `<p class="muted">Tidak ada saran yang lolos 4 lapis validasi untuk Jadwal #${escapeHtml(data.jadwal_id)}.</p>`;
+        return;
+      }
+      const cards = data.suggestions.map((s, idx) => {
+        const hari = HARI_NAMA[s.hari] || ("Hari " + s.hari);
+        return `
+          <div class="suggestion-card">
+            <div>
+              <strong>Alternatif #${idx + 1}</strong>
+              <div style="margin:6px 0; font-size:0.95rem;">
+                ${escapeHtml(hari)}, ${escapeHtml(s.jam_mulai.slice(0, 5))}–${escapeHtml(s.jam_selesai.slice(0, 5))} • Ruang <strong>${escapeHtml(s.ruangan_kode)}</strong>
+              </div>
+              <div class="muted">${escapeHtml(s.alasan)}</div>
+            </div>
+            <button class="apply" onclick="applySuggestionByIndex(${idx})">
+              Terapkan ke Jadwal #${escapeHtml(data.jadwal_id)}
+            </button>
+          </div>
+        `;
+      }).join("");
+
+      container.innerHTML = `
+        <div class="muted">Jadwal asal #${escapeHtml(data.jadwal_id)}: ${escapeHtml(formatSlot(current))} (kandidat slot tersedia: ${escapeHtml(data.available_slots_count)})</div>
+        <div class="suggestion-grid">${cards}</div>
+      `;
+    }
+
+    async function applySuggestionByIndex(idx) {
+      if (!currentSuggestionContext || !currentSuggestionContext.suggestions[idx]) return;
+      const s = currentSuggestionContext.suggestions[idx];
+      await applySuggestion(currentSuggestionContext.jadwal_id, {
+        kelas_id: currentSuggestionContext.kelas_id,
+        dosen_id: currentSuggestionContext.dosen_id,
+        ruangan_kode: s.ruangan_kode,
+        hari: s.hari,
+        jam_mulai: s.jam_mulai,
+        jam_selesai: s.jam_selesai,
+      });
+    }
+
+    async function applySuggestion(jadwalId, payload) {
+      try {
+        // Prinsip satu pintu: langsung memanggil PUT /api/jadwal/{id} (SchedulingService.update)
+        const res = await fetch(`/api/jadwal/${jadwalId}`, {
+          method: "PUT",
+          headers: ADMIN_HEADERS,
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.status === 409) {
+          showBanner("error", `409 Conflict: ${data.detail || "Slot sudah terisi admin lain."} Silakan muat ulang saran.`);
+          await requestSuggestions(jadwalId);
+          return;
+        }
+        if (!res.ok) {
+          showBanner("error", data.detail || "Gagal menerapkan jadwal baru.");
+          return;
+        }
+        showBanner(
+          "success",
+          `Jadwal #${jadwalId} berhasil dipindah (sequence=${data.sequence}). KRS terdampak dikembalikan ke REVISION dan notifikasi 3 kanal telah dikirim via Outbox.`
+        );
+        document.getElementById("suggestions-container").innerHTML =
+          "<p class='muted'>Perubahan diterapkan. Pilih konflik lain bila masih ada.</p>";
+        await loadDashboard();
+      } catch (err) {
+        showBanner("error", "Kesalahan saat menerapkan saran: " + err.message);
+      }
+    }
+
+    function renderOutbox(outboxData) {
+      const container = document.getElementById("outbox-container");
+      const events = outboxData.events || [];
+      const logs = outboxData.recent_channel_logs || [];
+      const eventRows = events.map(e => `
+        <tr>
+          <td>#${escapeHtml(e.id)}</td>
+          <td>${escapeHtml(e.event_type)}</td>
+          <td><span class="badge ${escapeHtml(e.status)}">${escapeHtml(e.status)}</span></td>
+          <td>${escapeHtml(e.attempts)}</td>
+          <td class="muted">${escapeHtml(e.last_error || "-")}</td>
+        </tr>
+      `).join("");
+
+      const logLines = logs.length
+        ? logs.map(l => escapeHtml(`[${l.channel.toUpperCase()}] to=${l.recipient} key=${l.key} | ${l.message}`)).join("\n")
+        : "(Belum ada log pengiriman kanal pada sesi server ini)";
+
+      container.innerHTML = `
+        <table>
+          <thead><tr><th>ID</th><th>Event</th><th>Status</th><th>Attempts</th><th>Error</th></tr></thead>
+          <tbody>${eventRows || '<tr><td colspan="5" class="muted">Belum ada baris outbox.</td></tr>'}</tbody>
+        </table>
+        <h3 style="margin:14px 0 6px; font-size:0.9rem;">Log Simulasi 3 Kanal (Email / SMS / Push)</h3>
+        <pre class="log-box">${logLines}</pre>
+      `;
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

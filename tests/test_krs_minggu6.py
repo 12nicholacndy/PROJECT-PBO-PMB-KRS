@@ -26,15 +26,18 @@ from tests.test_krs_minggu5 import _create_approved_student, _seed_sample_course
 
 
 # =============================================================================
-# 1. UNIT TEST STATE MACHINE EXHAUSTIVE (4 x 4 x 2 = 32 KOMBINASI)
+# 1. UNIT TEST STATE MACHINE EXHAUSTIVE (4 x 4 x 3 = 48 KOMBINASI; 6 SAH, 42 ILEGAL)
 # =============================================================================
 
-# Ditulis ulang secara manual dari spesifikasi tugas (bukan impor dari tabel kode).
+# Ditulis ulang secara manual dari spesifikasi tugas Minggu 6 + Minggu 8
+# (aktor SISTEM ditambahkan secara sengaja untuk invalidasi KRS saat jadwal berubah).
 SPEC_LEGAL_TRANSITIONS = {
     (KRSStatus.DRAFT, KRSStatus.SUBMITTED, KRSAktor.MAHASISWA),
     (KRSStatus.SUBMITTED, KRSStatus.APPROVED, KRSAktor.DOSEN_PA),
     (KRSStatus.SUBMITTED, KRSStatus.REVISION, KRSAktor.DOSEN_PA),
     (KRSStatus.REVISION, KRSStatus.SUBMITTED, KRSAktor.MAHASISWA),
+    (KRSStatus.SUBMITTED, KRSStatus.REVISION, KRSAktor.SISTEM),
+    (KRSStatus.APPROVED, KRSStatus.REVISION, KRSAktor.SISTEM),
 }
 
 ALL_COMBINATIONS = list(product(KRSStatus, KRSStatus, KRSAktor))
@@ -46,17 +49,19 @@ ILLEGAL_TRANSITIONS = [
 @pytest.mark.parametrize(
     "source,target,aktor", sorted(SPEC_LEGAL_TRANSITIONS, key=str)
 )
-def test_state_machine_all_4_legal_transitions_succeed(source, target, aktor):
+def test_state_machine_all_6_legal_transitions_succeed(source, target, aktor):
+    assert len(ALL_COMBINATIONS) == 48
+    assert len(SPEC_LEGAL_TRANSITIONS) == 6
     krs = KRS(nim="20260010001", semester="20251", status=source)
     krs.transition(target, aktor)
     assert krs.status == target
 
 
 @pytest.mark.parametrize("source,target,aktor", ILLEGAL_TRANSITIONS)
-def test_state_machine_all_28_illegal_transitions_raise_and_preserve_state(
+def test_state_machine_all_42_illegal_transitions_raise_and_preserve_state(
     source, target, aktor
 ):
-    assert len(ILLEGAL_TRANSITIONS) == 28
+    assert len(ILLEGAL_TRANSITIONS) == 42
     krs = KRS(nim="20260010001", semester="20251", status=source)
     with pytest.raises(KRSTransitionError):
         krs.transition(target, aktor)
