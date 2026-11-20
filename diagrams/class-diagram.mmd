@@ -1,12 +1,38 @@
 classDiagram
     %% =========================================================================
-    %% SEVIMA-Mini — Final Class Diagram (Minggu 1: Validated & SOLID Refactored)
-    %% Mencakup: Hierarki User, 5 Class Inti (+ ProgramStudi & KRS),
-    %% Visibility Modifiers (+, -, #), Kardinalitas, Inheritance, Composition,
-    %% Aggregation, Self-Association, dan Service terpisah sesuai SRP.
+    %% SEVIMA-Mini — Final Class Diagram (Minggu 2: Synchronized, SOLID & Patterns)
+    %% Sinkron 100% dengan:
+    %%   - diagrams/use-case-diagram.mmd
+    %%   - diagrams/sequence-pmb.mmd
+    %%   - diagrams/sequence-krs.mmd
+    %% Prinsip & Pattern:
+    %%   - 4 Pilar OOP + Visibility (+, -, #) + Kardinalitas Eksplisit
+    %%   - SRP (7 Service Modular, bebas God Object)
+    %%   - OCP (ValidationRule Strategy / Chain pada KRSValidator)
+    %%   - LSP (Hierarki abstract User; getIPK khusus Mahasiswa)
+    %%   - ISP (Interface kecil per peran: PengisiKRS, PenyetujuKRS, Penilai)
+    %%   - DIP (NotificationChannel, PMBRepository, AcademicRepository)
+    %%   - Factory Pattern (UserFactory) & Observer Pattern (NotificationSubscriber)
     %% =========================================================================
 
-    %% --- 1. Hierarki User (Inheritance & Abstraction) ---
+    %% --- 1. Interface Peran (ISP: Interface Segregation Principle) ---
+    class PengisiKRS {
+        <<interface>>
+        +isiKRS(semester: str) KRS
+    }
+
+    class PenyetujuKRS {
+        <<interface>>
+        +approveKRS(krs: KRS) void
+        +revisiKRS(krs: KRS, catatan: str) void
+    }
+
+    class Penilai {
+        <<interface>>
+        +inputNilai(enrollment: Enrollment, nilai: float) Grade
+    }
+
+    %% --- 2. Hierarki User (LSP: Liskov Substitution & Abstraction) ---
     class User {
         <<abstract>>
         #id: int
@@ -59,7 +85,7 @@ classDiagram
         +tampilkanDashboard() dict
     }
 
-    %% --- 2. Entitas Akademik Inti (Domain Models) ---
+    %% --- 3. Entitas Domain Inti ---
     class ProgramStudi {
         -id: int
         -kode: str
@@ -123,25 +149,114 @@ classDiagram
         -id: int
         -semester: str
         -jumlah: Decimal
+        -denda: Decimal
         -tanggalBayar: datetime
         -statusBayar: str
         +bayar(nominal: Decimal) void
+        +hitungDenda(hariTelat: int) Decimal
         +isLunas() bool
     }
 
-    %% --- 3. Lapisan Service & Validasi (SOLID: SRP, OCP, DIP) ---
-    class KRSValidator {
+    %% --- 4. Factory Pattern (Pembuatan User & NIM Terpusat) ---
+    class UserFactory {
+        +createUser(role: str, data: dict) User
+        -generateNIM(tahun: int, kodeProdi: str) str
+    }
+
+    %% --- 5. OCP: Strategy / Chain Validasi KRS ---
+    class ValidationRule {
         <<interface>>
-        +setNext(next: KRSValidator) KRSValidator
-        +validate(krs: KRS, course: Course) bool
+        +check(krs: KRS, courses: List~Course~) List~str~
+    }
+
+    class PrasyaratRule {
+        +check(krs: KRS, courses: List~Course~) List~str~
+    }
+
+    class BatasSKSRule {
+        -maxSKS: int
+        +check(krs: KRS, courses: List~Course~) List~str~
+    }
+
+    class JadwalBentrokRule {
+        +check(krs: KRS, courses: List~Course~) List~str~
+    }
+
+    class KRSValidator {
+        -rules: List~ValidationRule~
+        +addRule(rule: ValidationRule) void
+        +validateAll(krs: KRS, courses: List~Course~) List~str~
+    }
+
+    %% --- 6. DIP & Observer Pattern (Notifikasi Asinkron & Decoupled) ---
+    class NotificationChannel {
+        <<interface>>
+        +send(recipient: str, subject: str, body: str) bool
+    }
+
+    class EmailChannel {
+        +send(recipient: str, subject: str, body: str) bool
+    }
+
+    class WhatsAppChannel {
+        +send(recipient: str, subject: str, body: str) bool
+    }
+
+    class NotificationSubscriber {
+        <<interface>>
+        +onEvent(eventName: str, payload: dict) void
+    }
+
+    class AuditLogSubscriber {
+        +onEvent(eventName: str, payload: dict) void
+    }
+
+    class NotificationService {
+        -channel: NotificationChannel
+        -subscribers: List~NotificationSubscriber~
+        +subscribe(sub: NotificationSubscriber) void
+        +publishEvent(eventName: str, payload: dict) void
+        -logErrorDanJadwalkanRetry(eventName: str) void
+    }
+
+    %% --- 7. Repository Abstractions (DIP — Sinkron dengan Sequence Diagram) ---
+    class PMBRepository {
+        <<interface>>
+        +simpanPendaftar(calon: CalonMahasiswa) str
+        +findByNoPendaftaran(noDaftar: str) CalonMahasiswa
+        +updateStatus(calon: CalonMahasiswa, status: str) void
+        +simpanMahasiswaDanUpdateStatus(mhs: Mahasiswa, status: str) Mahasiswa
+    }
+
+    class AcademicRepository {
+        <<interface>>
+        +getPrasyaratDanRiwayatNilai(nim: str, course: Course) dict
+        +getJadwalDaftarMK(courses: List~Course~) List~Schedule~
+        +simpanKRS(krs: KRS, status: str) KRS
+    }
+
+    %% --- 8. Service Layer Modular (SRP — Memecah God Object) ---
+    class PMBService {
+        -repo: PMBRepository
+        -userFactory: UserFactory
+        -notifier: NotificationService
+        +daftar(formData: dict) str
+        +verifikasiDanPutuskan(noDaftar: str, lulus: bool) dict
     }
 
     class KRSManager {
-        -validatorChain: KRSValidator
+        -validator: KRSValidator
+        -repo: AcademicRepository
+        -notifier: NotificationService
         +addCourse(nim: str, kodeMK: str, semester: str) KRS
         +removeCourse(nim: str, kodeMK: str, semester: str) KRS
-        +validateKRS(nim: str, semester: str) List~str~
         +submitKRS(nim: str, semester: str) KRS
+    }
+
+    class JadwalService {
+        -notifier: NotificationService
+        +aturJadwal(course: Course, schedule: Schedule) void
+        +pindahRuangan(schedule: Schedule, ruanganBaru: str) void
     }
 
     class TranscriptService {
@@ -150,21 +265,32 @@ classDiagram
         +generateTranskrip(mahasiswa: Mahasiswa) dict
     }
 
-    class NotificationService {
-        +kirimNotifikasi(user: User, judul: str, pesan: str) void
+    class KeuanganService {
+        +buatTagihanSPP(mahasiswa: Mahasiswa, semester: str) Payment
+        +prosesPembayaran(payment: Payment, nominal: Decimal) bool
     }
 
-    %% --- Relasi Inheritance (is-a) ---
+    class PresensiService {
+        +generateQRPresensi(schedule: Schedule) str
+        +catatKehadiran(mahasiswa: Mahasiswa, schedule: Schedule) bool
+    }
+
+    %% --- Relasi Realization (ISP) ---
+    PengisiKRS <|.. Mahasiswa : implements
+    PenyetujuKRS <|.. Dosen : implements
+    Penilai <|.. Dosen : implements
+
+    %% --- Relasi Inheritance (LSP — is-a) ---
     User <|-- Mahasiswa
     User <|-- Dosen
     User <|-- Admin
     User <|-- CalonMahasiswa
 
-    %% --- Relasi Aggregation (memiliki lemah: bagian tetap hidup jika wadah hilang) ---
+    %% --- Relasi Aggregation (memiliki lemah) ---
     ProgramStudi "1" o-- "1..*" Dosen : menaungi
     ProgramStudi "1" o-- "0..*" Mahasiswa : menaungi
 
-    %% --- Relasi Composition (memiliki kuat: bagian ikut hilang jika wadah dihapus) ---
+    %% --- Relasi Composition (memiliki kuat) ---
     Course "1" *-- "1..*" Schedule : memiliki jadwal
     KRS "1" *-- "1..*" Enrollment : berisi detail
     Enrollment "1" *-- "0..1" Grade : menghasilkan nilai
@@ -172,17 +298,41 @@ classDiagram
     %% --- Relasi Self-Association (Prasyarat Mata Kuliah) ---
     Course "0..*" --> "0..*" Course : prasyarat
 
-    %% --- Relasi Association (antar domain) ---
+    %% --- Relasi Association antar Domain ---
     Mahasiswa "1" --> "0..*" KRS : menyusun
     Dosen "1" --> "0..*" KRS : membimbing PA
     Enrollment "0..*" --> "1" Course : mengambil
     Mahasiswa "1" --> "0..*" Payment : memiliki tagihan
     Admin "1" --> "0..*" CalonMahasiswa : memverifikasi
-    CalonMahasiswa "0..1" ..> "0..1" Mahasiswa : dikonversi saat lulus PMB
+    CalonMahasiswa "0..1" ..> "0..1" Mahasiswa : dikonversi via UserFactory
 
-    %% --- Relasi Service Layer (memecah God Object, tanpa circular dependency) ---
-    KRSManager "1" --> "1" KRSValidator : memvalidasi dengan
-    KRSManager ..> KRS : mengelola
-    KRSManager ..> NotificationService : memicu
-    TranscriptService ..> Mahasiswa : menghitung IPK
-    TranscriptService ..> Enrollment : membaca nilai
+    %% --- Relasi Factory Pattern ---
+    UserFactory ..> User : creates
+
+    %% --- Relasi OCP / ValidationRule Strategy ---
+    ValidationRule <|.. PrasyaratRule
+    ValidationRule <|.. BatasSKSRule
+    ValidationRule <|.. JadwalBentrokRule
+    KRSValidator "1" o-- "1..*" ValidationRule : menjalankan aturan
+    KRSValidator ..> AcademicRepository : membaca nilai & jadwal
+
+    %% --- Relasi DIP & Observer Pattern ---
+    NotificationChannel <|.. EmailChannel
+    NotificationChannel <|.. WhatsAppChannel
+    NotificationSubscriber <|.. AuditLogSubscriber
+    NotificationService "1" --> "1" NotificationChannel : mengirim via (DIP)
+    NotificationService "1" o-- "0..*" NotificationSubscriber : notifies (Observer)
+
+    %% --- Relasi Service Layer (SRP, tanpa circular dependency) ---
+    PMBService "1" --> "1" PMBRepository : persists
+    PMBService "1" --> "1" UserFactory : uses
+    PMBService "1" --> "1" NotificationService : publishes event
+    KRSManager "1" --> "1" KRSValidator : delegates validation
+    KRSManager "1" --> "1" AcademicRepository : persists
+    KRSManager "1" --> "1" NotificationService : publishes event
+    JadwalService "1" --> "1" NotificationService : publishes event
+    JadwalService ..> Schedule : manages
+    TranscriptService ..> Mahasiswa : computes IPK
+    TranscriptService ..> Enrollment : reads grades
+    KeuanganService ..> Payment : manages
+    PresensiService ..> Schedule : tracks
