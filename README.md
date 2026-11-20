@@ -1,30 +1,46 @@
-# Sistem Informasi Akademik Mini (SEVIMA-Mini) — Desain UML (Minggu 1) & Implementasi PMB/KRS
+# Sistem Informasi Akademik Mini (SEVIMA-Mini) — Desain UML (Minggu 1 & 2) & Implementasi PMB/KRS
 
-## Materi 1 — Minggu 1: Desain Sistem Akademis dengan UML & AI
+## Materi 1 — Minggu 1 & 2: Desain Sistem Akademis dengan UML, Refinements, SOLID & AI
 
-Dokumen dan diagram fondasi arsitektur SEVIMA-Mini sesuai template submission:
+Paket desain lengkap fondasi arsitektur SEVIMA-Mini sesuai template submission Materi 1 (Minggu 1 & Minggu 2):
 
 ```text
 ├── diagrams/
-│   └── class-diagram.mmd            # Class Diagram UML (Mermaid) tervalidasi & SOLID
+│   ├── class-diagram.mmd               # Class Diagram UML Final (35% — SOLID, Factory & Observer)
+│   ├── use-case-diagram.mmd            # Use Case Diagram UML Final (20% — Aktor Peran, <<include>>, <<extend>>)
+│   ├── sequence-pmb.mmd                # Sequence Diagram PMB (25% — UserFactory, Async & Alt Flow)
+│   ├── sequence-krs.mmd                # Sequence Diagram Validasi KRS (25% — Loop, Self-Call & Alt 4 Cabang)
+│   └── screenshots/                    # Bukti visual Before-After iterasi Minggu 1 & 2 (8 file PNG)
 ├── prompts/
-│   └── ai-usage-log.md              # 6 iterasi prompt terbaik, before-after AI vs revisi manual & OPAR
+│   └── ai-usage-log.md                 # 12 prompt terbaik (Minggu 1 & 2), Before-After, Log Charter & OPAR (15%)
 ├── docs/
-│   ├── ADR-architecture-decisions.pdf   # Architecture Decision Record (2 halaman PDF)
-│   └── PANDUAN_VIDEO_MINGGU_1.md        # Panduan rekaman video tutorial YouTube & Viva
+│   ├── ADR-architecture-decisions.pdf  # Architecture Decision Record 5 Bagian Standar (5%)
+│   ├── final-uml-diagrams.pdf          # Kompilasi PDF 4 Diagram UML Final + Matriks Sinkronisasi
+│   ├── PANDUAN_VIDEO_MINGGU_1.md       # Panduan video tutorial & Viva Minggu 1
+│   └── PANDUAN_VIDEO_MINGGU_2.md       # Panduan video tutorial & contekan Viva Minggu 2
 └── README.md
 ```
 
-### Tautan Cepat Artefak Minggu 1
-- **Class Diagram (Mermaid):** [diagrams/class-diagram.mmd](diagrams/class-diagram.mmd)
-- **AI Usage Documentation & OPAR:** [prompts/ai-usage-log.md](prompts/ai-usage-log.md)
+### Tautan Cepat Artefak Materi 1 (Minggu 1 & Minggu 2)
+- **Class Diagram Final (Mermaid):** [diagrams/class-diagram.mmd](diagrams/class-diagram.mmd)
+- **Use Case Diagram Final (Mermaid):** [diagrams/use-case-diagram.mmd](diagrams/use-case-diagram.mmd)
+- **Sequence Diagram PMB Final (Mermaid):** [diagrams/sequence-pmb.mmd](diagrams/sequence-pmb.mmd)
+- **Sequence Diagram Validasi KRS Final (Mermaid):** [diagrams/sequence-krs.mmd](diagrams/sequence-krs.mmd)
+- **AI Usage Documentation, Before–After & OPAR:** [prompts/ai-usage-log.md](prompts/ai-usage-log.md)
 - **Architecture Decision Record (PDF):** [docs/ADR-architecture-decisions.pdf](docs/ADR-architecture-decisions.pdf)
+- **Final UML Diagrams Package (PDF):** [docs/final-uml-diagrams.pdf](docs/final-uml-diagrams.pdf)
+- **Panduan Video & Persiapan Viva Minggu 2:** [docs/PANDUAN_VIDEO_MINGGU_2.md](docs/PANDUAN_VIDEO_MINGGU_2.md)
 
-### Ringkasan Desain Class Diagram
-- **Hierarki Abstract `User`:** `Mahasiswa`, `Dosen`, `Admin`, `CalonMahasiswa` (`#id`, `#username`, `-passwordHash`, `#email`, `+tampilkanDashboard()*`).
-- **Entitas Inti:** `ProgramStudi`, `Course` (self-association prasyarat), `Schedule`, `KRS`, `Enrollment`, `Grade`, dan `Payment`.
-- **Relasi Tervalidasi:** Inheritance (`<|--`), Composition (`*--`: `Course*--Schedule`, `KRS*--Enrollment`, `Enrollment*--Grade`), Aggregation (`o--`: `ProgramStudi o-- Dosen`, `ProgramStudi o-- Mahasiswa`), kardinalitas eksplisit, visibility modifier (`+`, `-`, `#`), bebas *God Object* & bebas *circular dependency*.
-- **Service Layer (SOLID — SRP, OCP, DIP):** `KRSManager`, `KRSValidator` (`<<interface>>`), `TranscriptService`, dan `NotificationService`.
+### Ringkasan Desain & Audit SOLID (100% Sinkron Antar-Diagram)
+- **Hierarki Abstract `User` (LSP):** `Mahasiswa`, `Dosen`, `Admin`, `CalonMahasiswa` (`#id`, `#username`, `-passwordHash`, `#email`, `+tampilkanDashboard()*`; `getIPK()` khusus `Mahasiswa`).
+- **Interface Peran (ISP):** `PengisiKRS` (`Mahasiswa`), `PenyetujuKRS` & `Penilai` (`Dosen`).
+- **Entitas Inti & Relasi UML Tervalidasi:** `ProgramStudi`, `Course` (self-association prasyarat), `Schedule`, `KRS`, `Enrollment`, `Grade`, dan `Payment` — lengkap dengan visibility (`+`, `-`, `#`), kardinalitas eksplisit, Composition (`*--`: `Course*--Schedule`, `KRS*--Enrollment`, `Enrollment*--Grade`), dan Aggregation (`o--`: `ProgramStudi o-- Dosen/Mahasiswa`).
+- **7 Service Modular (SRP — Anti God Object):** `PMBService`, `KRSManager` + `KRSValidator`, `JadwalService`, `TranscriptService`, `KeuanganService`, `PresensiService`, dan `NotificationService` (maksimal 6 method per kelas, bebas *circular dependency*).
+- **OCP, DIP & Design Patterns Wajib:**
+  - **Factory Pattern:** `UserFactory` (`createUser()`, `-generateNIM()`) untuk pembuatan 4 jenis `User` dan konversi `CalonMahasiswa` → `Mahasiswa`.
+  - **Observer Pattern & DIP:** `NotificationService` (`publishEvent()` asinkron) dengan `NotificationSubscriber` (`AuditLogSubscriber`) dan abstraksi `NotificationChannel` (`EmailChannel`, `WhatsAppChannel`).
+  - **Strategy / Chain of Responsibility (OCP):** `ValidationRule` (`PrasyaratRule`, `BatasSKSRule`, `JadwalBentrokRule`) pada `KRSValidator` dengan mekanisme *collect-all-errors* dan *alternate flow* 4 cabang.
+- **Use Case & Sequence Diagram Lengkap:** 6 aktor peran (termasuk `«system» Sistem PMB`, `Dosen PA`, `Dosen Pengampu`), arah `<<include>>` & `<<extend>>` tervalidasi, serta 2 skenario Sequence Diagram (`PMB` & `Validasi KRS`) lengkap dengan `loop`, *self-call*, pesan asinkron (`-)`), dan *alternate flow* (`alt`).
 
 ---
 
