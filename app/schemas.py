@@ -298,3 +298,139 @@ class OutboxAuditResponse(BaseModel):
     events: list[OutboxEventResponse]
     recent_channel_logs: list[NotificationLogResponse]
 
+
+# --- Skema Modul Nilai & Transkrip (Minggu 9–10) ---
+
+
+class GradeInputRequest(BaseModel):
+    nim: str = Field(..., min_length=1, max_length=30)
+    kode_mk: str = Field(..., min_length=1, max_length=20)
+    semester: str = Field(..., pattern=r"^\d{5}$")
+    nilai_huruf: str = Field(..., min_length=1, max_length=2)
+    presensi_persen: float = Field(default=100.0)
+    created_by: str = Field(..., min_length=1, max_length=100)
+
+
+class GradeUpdateRequest(BaseModel):
+    nilai_huruf: str = Field(..., min_length=1, max_length=2)
+    changed_by: str = Field(..., min_length=1, max_length=100)
+    reason: str = Field(..., min_length=1, max_length=500)
+    presensi_persen: float | None = Field(default=None)
+
+
+class GradeItemResponse(BaseModel):
+    id: int
+    nim: str
+    kode_mk: str
+    nama_mk: str
+    sks: int
+    semester: str
+    nilai_huruf: str
+    nilai_angka: float
+    mutu: float
+    lulus: bool
+    presensi_persen: float
+    created_by: str
+    updated_by: str
+    change_reason: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AcademicSummaryResponse(BaseModel):
+    nim: str
+    total_sks_lulus: int
+    ipk: float
+    predikat: str
+    updated_at: datetime | None = None
+
+
+class GradeHistoryItemResponse(BaseModel):
+    id: int
+    grade_id: int
+    nim: str
+    kode_mk: str
+    nama_mk: str
+    semester: str
+    old_value: str
+    new_value: str
+    changed_by: str
+    changed_at: datetime
+    reason: str
+
+
+class GradeInputResponse(BaseModel):
+    grade: GradeItemResponse
+    summary: AcademicSummaryResponse
+
+
+class GradeUpdateResponse(BaseModel):
+    grade: GradeItemResponse
+    summary: AcademicSummaryResponse
+    history: GradeHistoryItemResponse
+
+
+class IPSResponse(BaseModel):
+    nim: str
+    semester: str
+    ips: float
+
+
+class IPKResponse(BaseModel):
+    nim: str
+    ipk: float
+    total_sks_lulus: int
+    predikat: str
+    updated_at: datetime | None = None
+
+
+class TranscriptBiodataResponse(BaseModel):
+    nim: str
+    nama: str
+    program_studi: str
+    fakultas: str
+    angkatan: str
+
+
+class TranscriptCourseResponse(BaseModel):
+    kode_mk: str
+    nama_mk: str
+    sks: int
+    nilai_huruf: str
+    nilai_angka: float
+    mutu: float
+    lulus: bool
+    is_retake: bool
+    counted_in_ipk: bool
+
+
+class TranscriptSemesterResponse(BaseModel):
+    semester: str
+    semester_label: str
+    courses: list[TranscriptCourseResponse]
+    total_sks: int
+    total_mutu: float
+    ips: float
+
+
+class TranscriptResponse(BaseModel):
+    biodata: TranscriptBiodataResponse
+    semesters: list[TranscriptSemesterResponse]
+    total_sks_tempuh: int
+    total_sks_lulus: int
+    total_mutu_lulus: float
+    ipk: float
+    predikat: str
+    generated_at: datetime
+
+
+class StudentOptionResponse(BaseModel):
+    nim: str
+    nama: str
+    program_studi: str
+    angkatan: str
+    ipk: float
+    total_sks_lulus: int
+    predikat: str
+
+

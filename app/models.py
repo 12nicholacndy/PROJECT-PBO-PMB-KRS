@@ -6,9 +6,11 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    DDL,
     Date,
     DateTime,
     Enum as SAEnum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -17,6 +19,7 @@ from sqlalchemy import (
     Table,
     Time,
     UniqueConstraint,
+    event,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -446,3 +449,129 @@ class OutboxEvent(Base):
 
     def to_event(self) -> ScheduleEvent:
         return ScheduleEvent.from_payload(self.event_id, self.payload)
+
+
+class Grade(Base):
+    """Nilai mahasiswa per mata kuliah per semester (Minggu 9–10)."""
+
+    __tablename__ = "grades"
+    __table_args__ = (
+        UniqueConstraint(
+            "nim", "kode_mk", "semester", name="uq_grades_nim_mk_semester"
+        ),
+        CheckConstraint("length(semester) = 5", name="ck_grades_semester_5"),
+        CheckConstraint(
+            "nilai_huruf IN ('A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'D', 'E')",
+            name="ck_grades_nilai_huruf",
+        ),
+        CheckConstraint(
+            "nilai_angka >= 0.0 AND nilai_angka <= 4.0",
+            name="ck_grades_nilai_angka_range",
+        ),
+        CheckConstraint(
+            "presensi_persen >= 0.0 AND presensi_persen <= 100.0",
+            name="ck_grades_presensi_range",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nim: Mapped[str] = mapped_column(
+        String(30), ForeignKey("calon_mahasiswa.nim"), nullable=False, index=True
+    )
+    kode_mk: Mapped[str] = mapped_column(
+        String(20), ForeignKey("matakuliah.kode_mk"), nullable=False, index=True
+    )
+    semester: Mapped[str] = mapped_column(String(5), nullable=False)
+    nilai_huruf: Mapped[str] = mapped_column(String(2), nullable=False)
+    nilai_angka: Mapped[float] = mapped_column(Float, nullable=False)
+    presensi_persen: Mapped[float] = mapped_column(
+        Float, nullable=False, default=100.0, server_default="100.0"
+    )
+    created_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    change_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    matakuliah: Mapped["MataKuliah"] = relationship()
+    histories: Mapped[list["GradeHistory"]] = relationship(
+        back_populates="grade",
+        cascade="all, delete-orphan",
+    )
+
+
+class GradeHistory(Base):
+    """Audit trail otomatis setiap perubahan nilai di tabel grades."""
+
+    __tablename__ = "grade_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    grade_id: Mapped[int] = mapped_column(
+        ForeignKey("grades.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    old_value: Mapped[str] = mapped_column(String(10), nullable=False)
+    new_value: Mapped[str] = mapped_column(String(10), nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    grade: Mapped["Grade"] = relationship(back_populates="histories")
+
+
+class StudentAcademicSummary(Base):
+    """Ringkasan IPK, total SKS lulus, dan predikat yang diperbarui otomatis setiap input/edit nilai."""
+
+    __tablename__ = "student_academic_summary"
+    __table_args__ = (
+        CheckConstraint("total_sks_lulus >= 0", name="ck_summary_sks_nonneg"),
+        CheckConstraint("ipk >= 0.0 AND ipk <= 4.0", name="ck_summary_ipk_range"),
+    )
+
+    nim: Mapped[str] = mapped_column(
+        String(30), ForeignKey("calon_mahasiswa.nim"), primary_key=True
+    )
+    total_sks_lulus: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    ipk: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0.0"
+    )
+    predikat: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="Belum Ada Nilai",
+        server_default="Belum Ada Nilai",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+
+GRADE_AUDIT_TRIGGER_SQL = """
+CREATE TRIGGER IF NOT EXISTS trg_grades_after_update
+AFTER UPDATE OF nilai_huruf ON grades
+WHEN OLD.nilai_huruf != NEW.nilai_huruf
+BEGIN
+    INSERT INTO grade_history (grade_id, old_value, new_value, changed_by, changed_at, reason)
+    VALUES (
+        NEW.id,
+        OLD.nilai_huruf,
+        NEW.nilai_huruf,
+        NEW.updated_by,
+        CURRENT_TIMESTAMP,
+        COALESCE(NULLIF(TRIM(NEW.change_reason), ''), 'Perubahan nilai')
+    );
+END;
+"""
+
+event.listen(
+    GradeHistory.__table__,
+    "after_create",
+    DDL(GRADE_AUDIT_TRIGGER_SQL).execute_if(dialect="sqlite"),
+)

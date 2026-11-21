@@ -1,6 +1,6 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6) & Jadwal/Ruangan (Minggu 7–8)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6), Jadwal/Ruangan (Minggu 7–8) & Nilai/Transkrip (Minggu 9–10)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, serta **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)** mencakup deteksi bentrok 3 dimensi, Observer Pattern + Transactional Outbox, integrasi invalidasi KRS, AI Rescheduler dengan 4 lapis guardrail, Conflict Resolver UI, dan ekspor iCalendar (`.ics`):
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)**, serta **Modul Nilai & Transkrip lengkap (Minggu 9–10)** mencakup manajemen nilai & validasi presensi, perhitungan IPS/IPK otomatis dengan penanganan MK diulang, audit trail berbasis database trigger (`grade_history`), portal web form dosen, template transkrip HTML/CSS bergaya ijazah resmi, dan generator PDF ReportLab:
 
 ### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
@@ -73,6 +73,26 @@ Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utu
   - `GET /api/jadwal/export.ics` (filter opsional `?nim=`, `?semester=`, `?semester_start=`, `?semester_end=`) berformat RFC 5545 (CRLF `\r\n`, `UID` stabil `jadwal-{id}@sevima-mini`, `RRULE` dengan `UNTIL` UTC `Z`, dan `SEQUENCE` yang naik saat jadwal diubah).
 - **Dokumentasi Wajib:** UML Sequence Diagram Mermaid di `docs/SEQUENCE_OBSERVER_PATTERN.md` dan `docs/ADR_004_OBSERVER_OUTBOX_AI_RESCHEDULING.md`.
 
+### Ruang Lingkup Modul Nilai & Transkrip (Minggu 9–10)
+- **Skema Database & Migrasi Alembic (`f9c5d2e1847b`):**
+  - Tabel `grades` (`nim`, `kode_mk`, `semester`, `nilai_huruf`, `nilai_angka`, `presensi_persen`, `created_by`, `updated_by`, `change_reason`, `UniqueConstraint(nim, kode_mk, semester)`).
+  - Tabel `grade_history` (`id`, `grade_id`, `old_value`, `new_value`, `changed_by`, `changed_at`, `reason`) beserta **SQLite Database Trigger** `trg_grades_after_update` (`AFTER UPDATE OF nilai_huruf ON grades`) yang otomatis merekam setiap perubahan nilai.
+  - Tabel `student_academic_summary` (`nim`, `total_sks_lulus`, `ipk`, `predikat`, `updated_at`) yang diperbarui otomatis dalam satu transaksi setiap kali nilai diinput atau diubah.
+- **Grade Management & Business Rules (`app/services/grade_service.py`, `app/services/grade_errors.py`):**
+  - Input nilai (`A/A-/B+/B/B-/C+/C/D/E` → angka `4.0` s.d. `0.0`), tolak input jika presensi `< 75%` (`400`), proteksi peran `X-Role` (`403` untuk mahasiswa), sinkronisasi otomatis ke `krs_detail.nilai`, dan polymorphic exception handler `@app.exception_handler(GradeError)`.
+- **GPA Calculator (`app/services/gpa_calculator.py`):**
+  - `calculate_ips(db, nim, semester)` → IP semester (`0.0` jika kosong).
+  - `calculate_ipk(db, nim)` → IP kumulatif (hanya MK lulus `>= D`, MK diulang mengambil nilai tertinggi, `0.0` untuk semester awal tanpa nilai).
+  - `get_transcript(db, nim)` → catatan akademik lengkap per semester + summary + predikat (`Cum Laude >= 3.50`, `Sangat Memuaskan 3.00–3.49`, `Memuaskan 2.50–2.99`, `Cukup 2.00–2.49`, `Kurang < 2.00`).
+- **PDF Generator & Template HTML Resmi (`app/services/transcript_pdf.py`, `app/templates/transcript.html`):**
+  - Template HTML/CSS Jinja2 bergaya ijazah resmi + generator PDF **ReportLab** A4 (logo universitas, judul `TRANSKRIP AKADEMIK`, biodata NIM/Nama/Prodi/Angkatan, tabel per semester `[Kode MK | Nama MK | SKS | Nilai | Mutu]`, summary Total SKS/IPK/Predikat, dan blok `TTD Dekan`).
+- **Portal Web Form Dosen & Endpoint Nilai (`app/routers/grades.py`, `app/templates/grade_management.html`):**
+  - `GET /dosen/grades` — Form web input & edit nilai dosen + live auto-IPK + tabel `grade_history` + tombol preview HTML & download PDF.
+  - `POST /api/grades`, `PUT /api/grades/{grade_id}`, `GET /api/grades`, `GET /api/grades/students`
+  - `GET /api/grades/{nim}/ips/{semester}`, `GET /api/grades/{nim}/ipk`, `GET /api/grades/{nim}/history`
+  - `GET /api/grades/{nim}/transcript`, `GET /api/grades/{nim}/transcript/html`, `GET /api/grades/{nim}/transcript/pdf`
+- **Seed Demo & Dokumentasi:** `py -3.12 -m app.seed_grades`, `docs/ADR_005_GRADE_MANAGEMENT_AUDIT_AND_TRANSCRIPT_PDF.md`, serta `tests/test_grades_minggu9.py` (12 kasus IPK + Hypothesis PBT + tes trigger DB + tes PDF).
+
 ---
 
 ## Keputusan Desain Minggu 4
@@ -117,7 +137,7 @@ py -3.12 -m alembic check
 py -3.12 -m uvicorn app.main:app --reload
 ```
 
-Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, atau buka `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin.
+Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin, atau `http://127.0.0.1:8000/dosen/grades` untuk Portal Form Input Nilai & Transkrip PDF Dosen.
 
 ## 4. Data Referensi (Seed Awal)
 
@@ -143,4 +163,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **138 passed**, total coverage **95.64%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **182 passed**, total coverage **94.71%** (melebihi syarat minimum 80%).
