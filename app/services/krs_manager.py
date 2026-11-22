@@ -5,6 +5,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
+    Billing,
+    BillingStatus,
     CalonMahasiswa,
     KRS,
     KRSAktor,
@@ -180,6 +182,37 @@ class KRSManager:
             )
         )
 
+    def _get_spp_arrears(self, nim: str) -> list[Billing]:
+        return list(
+            self.db.scalars(
+                select(Billing)
+                .where(
+                    Billing.nim == nim,
+                    Billing.status.in_(
+                        (
+                            BillingStatus.UNPAID,
+                            BillingStatus.PARTIAL,
+                            BillingStatus.OVERDUE,
+                        )
+                    ),
+                )
+                .order_by(Billing.semester.asc())
+            ).all()
+        )
+
+    def _ensure_no_spp_arrears(self, nim: str) -> None:
+        """Memblokir pengisian/pengajuan KRS (HTTP 403) jika mahasiswa memiliki tunggakan SPP."""
+        arrears = self._get_spp_arrears(nim)
+        if arrears:
+            total_sisa = sum(b.remaining_amount for b in arrears)
+            semesters = ", ".join(b.semester for b in arrears)
+            formatted_sisa = f"Rp {total_sisa:,}".replace(",", ".")
+            raise KRSForbiddenError(
+                f"KRS diblokir: mahasiswa NIM {nim} masih memiliki tunggakan SPP "
+                f"semester {semesters} sebesar {formatted_sisa}. "
+                f"Lunasi tagihan SPP terlebih dahulu untuk dapat mengisi KRS"
+            )
+
     def add_course(
         self,
         nim: str,
@@ -188,6 +221,7 @@ class KRSManager:
         dosen_pa_id: int | None = None,
     ) -> KRS:
         """Menambah satu mata kuliah ke KRS dalam satu transaksi terkunci."""
+        self._ensure_no_spp_arrears(nim)
         krs = self._get_or_create_locked_krs(nim, semester, dosen_pa_id=dosen_pa_id)
         self._ensure_editable(krs)
 
@@ -260,6 +294,21 @@ class KRSManager:
     ) -> dict:
         total_sks = sum(mk.sks for mk in courses)
         failures: list[ValidationResult] = []
+
+        arrears = self._get_spp_arrears(krs.nim)
+        if arrears:
+            total_sisa = sum(b.remaining_amount for b in arrears)
+            semesters = ", ".join(b.semester for b in arrears)
+            formatted_sisa = f"Rp {total_sisa:,}".replace(",", ".")
+            failures.append(
+                ValidationResult(
+                    ok=False,
+                    message=(
+                        f"KRS diblokir: masih memiliki tunggakan SPP semester "
+                        f"{semesters} sebesar {formatted_sisa}"
+                    ),
+                )
+            )
 
         if total_sks > MAX_SKS:
             failures.append(
@@ -337,6 +386,7 @@ class KRSManager:
                 "Mahasiswa hanya boleh mengajukan KRS miliknya sendiri"
             )
 
+        self._ensure_no_spp_arrears(nim)
         krs = self._get_locked_krs(nim, semester)
         try:
             # 1. Cek transisi terlebih dahulu sebelum menjalankan validasi mahal.

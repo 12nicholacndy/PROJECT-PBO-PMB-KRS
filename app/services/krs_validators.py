@@ -5,7 +5,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
 
-from app.models import KRS, KRSDetail, MataKuliah, prerequisite_table
+from app.models import Billing, BillingStatus, KRS, KRSDetail, MataKuliah, prerequisite_table
 
 MAX_SKS = 24
 
@@ -204,9 +204,45 @@ class ConflictValidator(Validator):
         return ValidationResult(ok=True)
 
 
+class BillingArrearsValidator(Validator):
+    """Memblokir pengisian KRS jika mahasiswa memiliki tunggakan SPP belum lunas (Minggu 11)."""
+
+    def check(self, ctx: KRSContext) -> ValidationResult:
+        unpaid_billings = list(
+            ctx.db.scalars(
+                select(Billing)
+                .where(
+                    Billing.nim == ctx.nim,
+                    Billing.status.in_(
+                        (
+                            BillingStatus.UNPAID,
+                            BillingStatus.PARTIAL,
+                            BillingStatus.OVERDUE,
+                        )
+                    ),
+                )
+                .order_by(Billing.semester.asc())
+            ).all()
+        )
+        if unpaid_billings:
+            total_sisa = sum(b.remaining_amount for b in unpaid_billings)
+            semesters = ", ".join(b.semester for b in unpaid_billings)
+            formatted_sisa = f"Rp {total_sisa:,}".replace(",", ".")
+            return ValidationResult(
+                ok=False,
+                message=(
+                    f"KRS diblokir: mahasiswa NIM {ctx.nim} masih memiliki tunggakan SPP "
+                    f"semester {semesters} sebesar {formatted_sisa}. "
+                    f"Harap lunasi tagihan SPP terlebih dahulu"
+                ),
+            )
+        return ValidationResult(ok=True)
+
+
 def build_default_validators() -> list[Validator]:
-    """Urutan default: Duplicate paling depan karena paling murah & pesan paling jelas."""
+    """Urutan default: cek tunggakan SPP & duplikat paling depan agar cepat & jelas."""
     return [
+        BillingArrearsValidator(),
         DuplicateValidator(),
         SKSValidator(),
         PrerequisiteValidator(),

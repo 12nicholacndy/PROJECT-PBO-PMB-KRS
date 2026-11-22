@@ -8,6 +8,7 @@ router = APIRouter(tags=["Web UI (Admin & Dosen)"])
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 CONFLICT_TEMPLATE_PATH = TEMPLATES_DIR / "conflict_resolver.html"
 GRADE_TEMPLATE_PATH = TEMPLATES_DIR / "grade_management.html"
+FINANCE_TEMPLATE_PATH = TEMPLATES_DIR / "finance_dashboard.html"
 
 
 @router.get(
@@ -26,3 +27,12 @@ def conflict_resolver_dashboard() -> HTMLResponse:
 )
 def dosen_grade_portal() -> HTMLResponse:
     return HTMLResponse(content=GRADE_TEMPLATE_PATH.read_text(encoding="utf-8"))
+
+
+@router.get(
+    "/keuangan/dashboard",
+    response_class=HTMLResponse,
+    summary="Dashboard Keuangan SPP Real-Time (Tagihan Mahasiswa, Collection Rate Prodi, Grafik Bulanan & AI Insights)",
+)
+def finance_dashboard_ui() -> HTMLResponse:
+    return HTMLResponse(content=FINANCE_TEMPLATE_PATH.read_text(encoding="utf-8"))

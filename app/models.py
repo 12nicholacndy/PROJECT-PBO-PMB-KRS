@@ -57,6 +57,19 @@ class OutboxStatus(str, Enum):
     FAILED = "failed"
 
 
+class BillingStatus(str, Enum):
+    UNPAID = "unpaid"
+    PARTIAL = "partial"
+    PAID = "paid"
+    OVERDUE = "overdue"
+
+
+class PaymentStatus(str, Enum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 # Tabel transisi resmi state machine KRS: (state_asal, aktor) -> himpunan state tujuan sah.
 # Minggu 8 menambahkan aktor SISTEM untuk invalidasi KRS terdampak perubahan jadwal.
 KRS_TRANSITIONS: dict[tuple[KRSStatus, KRSAktor], set[KRSStatus]] = {
@@ -575,3 +588,149 @@ event.listen(
     "after_create",
     DDL(GRADE_AUDIT_TRIGGER_SQL).execute_if(dialect="sqlite"),
 )
+
+
+class PaymentMethod(Base):
+    """Master metode pembayaran SPP (Minggu 11)."""
+
+    __tablename__ = "payment_method"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    category: Mapped[str] = mapped_column(String(30), nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    payments: Mapped[list["Payment"]] = relationship(back_populates="payment_method")
+
+
+class Billing(Base):
+    """Tagihan SPP mahasiswa per semester dengan state management & denda (Minggu 11)."""
+
+    __tablename__ = "billing"
+    __table_args__ = (
+        UniqueConstraint("nim", "semester", name="uq_billing_nim_semester"),
+        CheckConstraint("length(semester) = 5", name="ck_billing_semester_5"),
+        CheckConstraint("amount > 0", name="ck_billing_amount_positif"),
+        CheckConstraint("late_fee >= 0", name="ck_billing_late_fee_nonneg"),
+        CheckConstraint("paid_amount >= 0", name="ck_billing_paid_amount_nonneg"),
+        CheckConstraint(
+            "status IN ('unpaid', 'partial', 'paid', 'overdue')",
+            name="ck_billing_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nim: Mapped[str] = mapped_column(
+        String(30), ForeignKey("calon_mahasiswa.nim"), nullable=False, index=True
+    )
+    semester: Mapped[str] = mapped_column(String(5), nullable=False, index=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    late_fee: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    paid_amount: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    due_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    status: Mapped[BillingStatus] = mapped_column(
+        SAEnum(
+            BillingStatus,
+            name="billing_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=BillingStatus.UNPAID,
+        server_default=BillingStatus.UNPAID.value,
+        index=True,
+    )
+    last_reminded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    mahasiswa: Mapped["CalonMahasiswa"] = relationship()
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="billing",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def total(self) -> int:
+        """Total tagihan efektif = pokok SPP + denda keterlambatan."""
+        return self.amount + self.late_fee
+
+    @property
+    def remaining_amount(self) -> int:
+        """Sisa kewajiban pembayaran yang belum dilunasi."""
+        return max(0, self.total - self.paid_amount)
+
+
+class Payment(Base):
+    """Catatan transaksi pembayaran SPP baik manual maupun webhook gateway (Minggu 11)."""
+
+    __tablename__ = "payment"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payment_amount_positif"),
+        CheckConstraint(
+            "status IN ('pending', 'success', 'failed')",
+            name="ck_payment_status",
+        ),
+        CheckConstraint(
+            "source IN ('manual', 'webhook')",
+            name="ck_payment_source",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    billing_id: Mapped[int] = mapped_column(
+        ForeignKey("billing.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    payment_method_id: Mapped[int] = mapped_column(
+        ForeignKey("payment_method.id"), nullable=False, index=True
+    )
+    transaction_id: Mapped[str] = mapped_column(
+        String(100), unique=True, nullable=False
+    )
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[PaymentStatus] = mapped_column(
+        SAEnum(
+            PaymentStatus,
+            name="payment_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=PaymentStatus.SUCCESS,
+        server_default=PaymentStatus.SUCCESS.value,
+    )
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="manual", server_default="manual"
+    )
+    paid_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    receipt_sent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    receipt_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    billing: Mapped["Billing"] = relationship(back_populates="payments")
+    payment_method: Mapped["PaymentMethod"] = relationship(back_populates="payments")

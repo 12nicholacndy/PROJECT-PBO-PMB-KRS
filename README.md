@@ -1,6 +1,6 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6), Jadwal/Ruangan (Minggu 7–8) & Nilai/Transkrip (Minggu 9–10)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6), Jadwal/Ruangan (Minggu 7–8), Nilai/Transkrip (Minggu 9–10) & Keuangan SPP (Minggu 11)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)**, serta **Modul Nilai & Transkrip lengkap (Minggu 9–10)** mencakup manajemen nilai & validasi presensi, perhitungan IPS/IPK otomatis dengan penanganan MK diulang, audit trail berbasis database trigger (`grade_history`), portal web form dosen, template transkrip HTML/CSS bergaya ijazah resmi, dan generator PDF ReportLab:
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)**, **Modul Nilai & Transkrip lengkap (Minggu 9–10)**, serta **Modul Keuangan / SPP lengkap (Minggu 11)** mencakup skema tagihan & pembayaran (`billing`, `payment`, `payment_method`), state management (`unpaid`, `partial`, `paid`, `overdue`), cron job APScheduler otomatis tiap semester & reminder harian, perhitungan denda keterlambatan, pemblokiran KRS otomatis bagi penunggak SPP, simulasi Payment Webhook ber-signature HMAC-SHA256 + email kwitansi, Dashboard Keuangan real-time, dan AI Financial Report JSON:
 
 ### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
@@ -93,6 +93,23 @@ Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utu
   - `GET /api/grades/{nim}/transcript`, `GET /api/grades/{nim}/transcript/html`, `GET /api/grades/{nim}/transcript/pdf`
 - **Seed Demo & Dokumentasi:** `py -3.12 -m app.seed_grades`, `docs/ADR_005_GRADE_MANAGEMENT_AUDIT_AND_TRANSCRIPT_PDF.md`, serta `tests/test_grades_minggu9.py` (12 kasus IPK + Hypothesis PBT + tes trigger DB + tes PDF).
 
+### Ruang Lingkup Modul Keuangan / SPP (Minggu 11)
+- **Payment Schema & Migrasi Alembic (`a1b2c3d4e5f6`):**
+  - Tabel `payment_method`, `billing` (`UniqueConstraint(nim, semester)`, `amount`, `late_fee`, `paid_amount`, `due_date`, status `unpaid`/`partial`/`paid`/`overdue`), dan `payment` (`transaction_id` unik, `source` `manual`/`webhook`, `receipt_sent`, `receipt_email`, `raw_payload`).
+- **Billing Service, Denda & APScheduler (`app/services/billing_service.py`, `app/services/billing_scheduler.py`):**
+  - `generate_billing()` idempoten untuk semua mahasiswa aktif: tarif berdasar prodi (**Teknik Rp 5.000.000**, **Ekonomi Rp 4.000.000**, lainnya Rp 4.500.000), `due_date = semester_start + 14 hari`, status awal `unpaid`.
+  - Cron job **APScheduler** (`semester_billing_generator` tiap 1 Feb & 1 Agu; `daily_overdue_reminder` harian 07:00 WIB) terpasang di `lifespan` FastAPI.
+  - Perhitungan denda keterlambatan (1% per minggu terlambat, maks. 10% pokok SPP) + transisi ke `overdue` + pengiriman reminder otomatis (simulasi email + tabel `notifikasi`).
+  - `process_payment()` dalam transaksi atomik (`with_for_update()`): akumulasi `paid_amount < total` → `partial`, `paid_amount >= total` → `paid`.
+- **Integrasi Block KRS (`app/services/krs_validators.py`, `app/services/krs_manager.py`):**
+  - `BillingArrearsValidator` & guard `_ensure_no_spp_arrears()` menolak pengisian (`POST /api/krs/courses`) dan pengajuan (`POST /api/krs/{nim}/{semester}/submit`) dengan **HTTP 403 Forbidden** bila mahasiswa memiliki tunggakan (`unpaid`/`partial`/`overdue`); langsung terbuka otomatis setelah lunas (`paid`).
+- **Payment Webhook Simulation (`POST /api/finance/webhook/payment`):**
+  - Verifikasi signature HMAC-SHA256 (`X-Webhook-Signature`, **401** jika invalid), pemrosesan atomik idempoten per `transaction_id`, pengiriman kwitansi email simulasi, return **200 OK**, serta helper `POST /api/finance/webhook/sign` untuk menghasilkan perintah `curl`.
+- **Dashboard Keuangan Real-Time & AI Financial Report (`app/services/finance_dashboard.py`, `app/services/ai_financial_report.py`, `app/templates/finance_dashboard.html`):**
+  - `GET /keuangan/dashboard` & `GET /api/finance/dashboard`: ringkasan per mahasiswa (total tagihan, sudah bayar, sisa, status blokir KRS), collection rate per prodi, dan grafik pembayaran per bulan.
+  - `GET /api/finance/ai-insights` & `POST /api/finance/ai-insights/csv`: output JSON berisi total revenue bulan ini, collection rate, Top 10 penunggak terbesar, dan rekomendasi reminder tunggakan `> 2 bulan`.
+- **Seed Demo & Dokumentasi:** `py -3.12 -m app.seed_finance`, `docs/ADR_006_FINANCE_SPP_WEBHOOK_SCHEDULER_AND_AI_REPORT.md`, serta `tests/test_finance_minggu11.py`.
+
 ---
 
 ## Keputusan Desain Minggu 4
@@ -137,7 +154,7 @@ py -3.12 -m alembic check
 py -3.12 -m uvicorn app.main:app --reload
 ```
 
-Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin, atau `http://127.0.0.1:8000/dosen/grades` untuk Portal Form Input Nilai & Transkrip PDF Dosen.
+Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin, `http://127.0.0.1:8000/dosen/grades` untuk Portal Form Input Nilai & Transkrip PDF Dosen, atau `http://127.0.0.1:8000/keuangan/dashboard` untuk Dashboard Keuangan SPP Real-Time.
 
 ## 4. Data Referensi (Seed Awal)
 
@@ -163,4 +180,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **182 passed**, total coverage **94.71%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **195 passed**, total coverage **91.85%** (melebihi syarat minimum 80%).

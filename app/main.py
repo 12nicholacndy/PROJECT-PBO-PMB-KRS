@@ -5,10 +5,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.routers.admin_ui import router as admin_ui_router
+from app.routers.finance import router as finance_router
 from app.routers.grades import router as grades_router
 from app.routers.jadwal import router as jadwal_router
 from app.routers.krs import router as krs_router
 from app.routers.pmb import router as pmb_router
+from app.services.billing_scheduler import get_billing_scheduler
+from app.services.finance_errors import FinanceError
 from app.services.grade_errors import GradeError
 from app.services.krs_errors import KRSError
 from app.services.schedule_errors import ScheduleError
@@ -19,18 +22,24 @@ from app.services.schedule_observers import init_default_schedule_subject
 async def lifespan(app: FastAPI):
     # Observer dirangkai SEKALI saat aplikasi start untuk mencegah memory leak & notifikasi ganda.
     init_default_schedule_subject()
-    yield
+    scheduler = get_billing_scheduler()
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.shutdown()
 
 
 app = FastAPI(
-    title="Sistem Informasi Akademik Mini (PMB, KRS, Jadwal & Nilai/Transkrip)",
+    title="Sistem Informasi Akademik Mini (PMB, KRS, Jadwal, Nilai & Keuangan SPP)",
     description=(
         "API Modul PMB (Minggu 3–4), Modul KRS dengan State Machine & CSP (Minggu 5–6), "
         "Modul Jadwal & Ruangan dengan Deteksi Bentrok 3D, Observer/Outbox, AI Rescheduler "
-        "& iCalendar (Minggu 7–8), serta Modul Nilai, GPA Calculator, Audit Trail & "
-        "Generator Transkrip PDF (Minggu 9–10)"
+        "& iCalendar (Minggu 7–8), Modul Nilai, GPA Calculator, Audit Trail & "
+        "Generator Transkrip PDF (Minggu 9–10), serta Modul Keuangan SPP, APScheduler, "
+        "Payment Webhook, Dashboard Real-Time, Block KRS & AI Financial Report (Minggu 11)"
     ),
-    version="2.3.0",
+    version="2.4.0",
     lifespan=lifespan,
 )
 
@@ -83,6 +92,16 @@ async def grade_exception_handler(request: Request, exc: GradeError):
     )
 
 
+@app.exception_handler(FinanceError)
+async def finance_exception_handler(request: Request, exc: FinanceError):
+    # Polimorfisme: satu handler untuk FinanceError dan seluruh turunannya
+    # (400 validasi, 401 webhook signature invalid, 403 forbidden, 404 not found, 409 konflik).
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.body(),
+    )
+
+
 @app.get("/", tags=["Informasi"])
 def home():
     return {"message": "Sistem Informasi Akademik Mini berjalan"}
@@ -92,4 +111,5 @@ app.include_router(pmb_router)
 app.include_router(krs_router)
 app.include_router(jadwal_router)
 app.include_router(grades_router)
+app.include_router(finance_router)
 app.include_router(admin_ui_router)
