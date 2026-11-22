@@ -1,5 +1,6 @@
 import re
 from datetime import date, datetime, time
+from typing import Any
 
 from pydantic import (
     BaseModel,
@@ -685,6 +686,210 @@ class EmailLogResponse(BaseModel):
     body: str
     category: str
     sent_at: datetime
+
+
+# ============================================================
+# Schemas Modul Presensi QR Code (Minggu 12)
+# ============================================================
+
+
+class AttendanceQRSessionRequest(BaseModel):
+    valid_minutes: int = Field(default=15, ge=1, le=60)
+    session_date: date | None = None
+    latitude: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitude: float | None = Field(default=None, ge=-180.0, le=180.0)
+    radius_meters: float = Field(default=100.0, gt=0.0, le=5000.0)
+    require_location: bool = False
+    created_by: str = Field(default="dosen", min_length=1, max_length=100)
+
+
+class AttendanceQRSessionResponse(BaseModel):
+    session_id: int
+    schedule_id: int
+    kode_mk: str
+    nama_mk: str
+    nama_kelas: str
+    semester: str
+    hari: int
+    nama_hari: str
+    jam_mulai: str
+    jam_selesai: str
+    ruangan_kode: str
+    dosen_nama: str
+    session_date: date
+    pertemuan_ke: int
+    active_jti: str
+    session_started_at: datetime
+    qr_generated_at: datetime
+    qr_expires_at: datetime
+    valid_minutes: int
+    token: str
+    qr_base64: str
+    require_location: bool
+    latitude: float | None = None
+    longitude: float | None = None
+    radius_meters: float
+
+
+class AttendanceSessionItemResponse(BaseModel):
+    session_id: int
+    schedule_id: int
+    kode_mk: str
+    nama_mk: str
+    nama_kelas: str
+    semester: str
+    hari: int
+    nama_hari: str
+    jam_mulai: str
+    jam_selesai: str
+    ruangan_kode: str
+    dosen_nama: str
+    session_date: date
+    pertemuan_ke: int
+    status: str
+    qr_expires_at: datetime
+    hadir_count: int
+    terlambat_count: int
+    alpha_count: int
+    total_records: int
+
+
+class AttendanceCloseSessionResponse(BaseModel):
+    session_id: int
+    schedule_id: int
+    status: str
+    marked_alpha: int
+
+
+class AttendanceScanRequest(BaseModel):
+    token: str = Field(..., min_length=10)
+    nim: str = Field(..., min_length=3, max_length=30)
+    latitude: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitude: float | None = Field(default=None, ge=-180.0, le=180.0)
+    scanned_at: datetime | None = Field(
+        default=None,
+        description="Opsional: override waktu scan (ISO datetime) untuk simulasi/pengujian",
+    )
+
+
+class AttendanceScanResponse(BaseModel):
+    success: bool
+    status: str
+    message: str
+    record_id: int
+    session_id: int
+    schedule_id: int
+    nim: str
+    nama_mahasiswa: str
+    kode_mk: str
+    nama_mk: str
+    nama_kelas: str
+    scanned_at: datetime
+    distance_meters: float | None = None
+
+
+class StudentCourseAttendanceItem(BaseModel):
+    kode_mk: str
+    nama_mk: str
+    semester: str
+    kelas_id: int | None = None
+    total_sessions: int
+    hadir: int
+    terlambat: int
+    izin: int
+    alpha: int
+    attended_count: int
+    attendance_percentage: float
+    warning: bool
+
+
+class StudentAttendanceReportResponse(BaseModel):
+    nim: str
+    nama_mahasiswa: str
+    semester: str | None = None
+    overall_attendance_percentage: float
+    warning_course_count: int
+    courses: list[StudentCourseAttendanceItem]
+
+
+class CourseStudentAttendanceItem(BaseModel):
+    nim: str
+    nama_mahasiswa: str
+    nama_kelas: str
+    total_sessions: int
+    hadir: int
+    terlambat: int
+    izin: int
+    alpha: int
+    attended_count: int
+    attendance_percentage: float
+    warning: bool
+
+
+class CourseAttendanceReportResponse(BaseModel):
+    kode_mk: str
+    nama_mk: str
+    semester: str | None = None
+    total_sessions: int
+    total_students: int
+    average_attendance_percentage: float
+    warning_threshold: float
+    warning_count: int
+    warning_students: list[CourseStudentAttendanceItem]
+    students: list[CourseStudentAttendanceItem]
+
+
+class AIAttendanceAnalyzeRequest(BaseModel):
+    attendance_records: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AIAttendancePatternItem(BaseModel):
+    type: str
+    target: str
+    label: str
+    absent_count: int
+    total_count: int
+    absent_rate: float
+    description: str
+
+
+class AIAttendanceActionItem(BaseModel):
+    type: str
+    target: str
+    priority: str
+    message: str
+
+
+class AIAttendanceSummary(BaseModel):
+    total_records: int
+    total_students: int
+    average_attendance_rate: float
+    at_risk_count: int
+    early_warning: str
+
+
+class AIAttendanceStudentItem(BaseModel):
+    nim: str
+    nama_mahasiswa: str
+    total_sessions: int
+    hadir: int
+    terlambat: int
+    izin: int
+    alpha: int
+    attended_count: int
+    attendance_percentage: float
+    warning: bool
+
+
+class AIAttendanceInsightsResponse(BaseModel):
+    summary: AIAttendanceSummary
+    student_attendance: list[AIAttendanceStudentItem]
+    at_risk_students: list[AIAttendanceStudentItem]
+    patterns: list[AIAttendancePatternItem]
+    insights: list[str]
+    actions: list[AIAttendanceActionItem]
+    narrative: str
+    ai_engine: str
 
 
 

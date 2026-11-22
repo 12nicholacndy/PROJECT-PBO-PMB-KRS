@@ -9,6 +9,7 @@ TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 CONFLICT_TEMPLATE_PATH = TEMPLATES_DIR / "conflict_resolver.html"
 GRADE_TEMPLATE_PATH = TEMPLATES_DIR / "grade_management.html"
 FINANCE_TEMPLATE_PATH = TEMPLATES_DIR / "finance_dashboard.html"
+ATTENDANCE_TEMPLATE_PATH = TEMPLATES_DIR / "attendance_portal.html"
 
 
 @router.get(
@@ -36,3 +37,12 @@ def dosen_grade_portal() -> HTMLResponse:
 )
 def finance_dashboard_ui() -> HTMLResponse:
     return HTMLResponse(content=FINANCE_TEMPLATE_PATH.read_text(encoding="utf-8"))
+
+
+@router.get(
+    "/dosen/attendance",
+    response_class=HTMLResponse,
+    summary="Portal Presensi QR Code Dosen & Mahasiswa (Generate QR 15m, Simulasi Scan, Export Excel & AI Insights)",
+)
+def dosen_attendance_portal() -> HTMLResponse:
+    return HTMLResponse(content=ATTENDANCE_TEMPLATE_PATH.read_text(encoding="utf-8"))

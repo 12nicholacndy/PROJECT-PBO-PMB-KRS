@@ -1,6 +1,6 @@
-# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6), Jadwal/Ruangan (Minggu 7–8), Nilai/Transkrip (Minggu 9–10) & Keuangan SPP (Minggu 11)
+# Sistem Informasi Akademik Mini — Modul PMB (Minggu 3–4), KRS (Minggu 5–6), Jadwal/Ruangan (Minggu 7–8), Nilai/Transkrip (Minggu 9–10), Keuangan SPP (Minggu 11) & Presensi QR Code (Minggu 12)
 
-Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)**, **Modul Nilai & Transkrip lengkap (Minggu 9–10)**, serta **Modul Keuangan / SPP lengkap (Minggu 11)** mencakup skema tagihan & pembayaran (`billing`, `payment`, `payment_method`), state management (`unpaid`, `partial`, `paid`, `overdue`), cron job APScheduler otomatis tiap semester & reminder harian, perhitungan denda keterlambatan, pemblokiran KRS otomatis bagi penunggak SPP, simulasi Payment Webhook ber-signature HMAC-SHA256 + email kwitansi, Dashboard Keuangan real-time, dan AI Financial Report JSON:
+Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utuh untuk Minggu 3 & 4, **Modul Kartu Rencana Studi (KRS) lengkap (Minggu 5 & 6)** ditambah **Challenge Opsional (+10%): KRS Recommendation CSP Backtracking**, **Modul Jadwal & Ruangan lengkap (Minggu 7 & 8)**, **Modul Nilai & Transkrip lengkap (Minggu 9–10)**, **Modul Keuangan / SPP lengkap (Minggu 11)**, serta **Modul Presensi QR Code lengkap (Minggu 12)** mencakup QR Generation berbasis JWT HS256 (valid 15 menit, `jti` unik anti replay attack), validasi scan 5 lapis + geolokasi Haversine (opsional) + rate limiting (`429`), rekap kehadiran per mahasiswa & per MK (`< 75%` warning), export Excel (`.xlsx`), Portal Web Presensi (`/dosen/attendance`), dan AI Attendance Insights (`insights` + `actions`):
 
 ### Ruang Lingkup Modul PMB (Minggu 3–4)
 - Tabel `calon_mahasiswa`, `program_studi`, `jalur_masuk`, dan `nim_sequence` (SQLAlchemy 2.0 `Mapped` + `mapped_column`).
@@ -110,6 +110,25 @@ Project ini mengimplementasikan modul Penerimaan Mahasiswa Baru (PMB) secara utu
   - `GET /api/finance/ai-insights` & `POST /api/finance/ai-insights/csv`: output JSON berisi total revenue bulan ini, collection rate, Top 10 penunggak terbesar, dan rekomendasi reminder tunggakan `> 2 bulan`.
 - **Seed Demo & Dokumentasi:** `py -3.12 -m app.seed_finance`, `docs/ADR_006_FINANCE_SPP_WEBHOOK_SCHEDULER_AND_AI_REPORT.md`, serta `tests/test_finance_minggu11.py`.
 
+### Ruang Lingkup Modul Presensi QR Code (Minggu 12)
+- **Skema Database & Migrasi Alembic (`b2c3d4e5f6a7`):**
+  - Tabel `attendance_sessions` (`UniqueConstraint(jadwal_id, session_date)`, `active_jti` unik untuk anti replay attack, `session_started_at`, `qr_generated_at`, `qr_expires_at`, status `open`/`closed`, koordinat opsional `latitude`/`longitude`/`radius_meters`/`require_location`).
+  - Tabel `attendance_records` (`UniqueConstraint(session_id, nim)`, status `hadir`/`terlambat`/`alpha`/`izin`, `scanned_at`, `token_jti`, `distance_meters`).
+- **QR Generation Service & Security (`app/services/attendance_qr.py`, `app/services/attendance_errors.py`):**
+  - `generate_attendance_qr(schedule_id, valid_minutes=15)` menandatangani JWT `HS256` dengan klaim `schedule_id`, `iat`, `exp` (15 menit), `jti` unik per sesi, dan `session_id`, lalu merender gambar QR PNG.
+  - Endpoint `GET /attendance/qr/{schedule_id}` mengembalikan `image/png` (dengan `X-Attendance-Token`, `X-Session-Id`, `X-Expires-At`) dan `POST /attendance/qr/{schedule_id}/session` mengembalikan metadata JSON + QR base64 (dilindungi `X-Role` dosen/admin).
+  - `ScanRateLimiter` (sliding window 5 request / 60 detik per IP+NIM → **HTTP 429 Too Many Requests** + header `Retry-After`) mencegah spam scan.
+- **Attendance Recording & Geolocation (`app/services/attendance_service.py`):**
+  - `POST /attendance/scan` menjalankan validasi berurutan: (1) decode JWT + cek `exp` + cek `active_jti` anti replay (**401**); (2) cek jadwal hari kuliah & tanggal sesi (**400**); (3) cek enrollment di `krs_detail` termasuk kecocokan kelas paralel `kelas_id` agar tidak bisa scan QR kelas orang lain (**403**); (4) cek jarak Haversine jika lokasi aktif (**400**); (5) cek duplikat scan (**409**); (6) hitung status **`hadir`** (`<= 15 menit` dari mulai kuliah) atau **`terlambat`** (`15–30 menit`, tolak `> 30 menit`).
+- **Attendance Report & Export Excel (`app/services/attendance_excel.py`):**
+  - `GET /attendance/report/student/{nim}` — persentase kehadiran per MK mahasiswa.
+  - `GET /attendance/report/course/{kode_mk}` — rekap seluruh mahasiswa + daftar `warning_students` (`< 75%`).
+  - `GET /attendance/report/course/{kode_mk}/export` — file Excel `.xlsx` (`openpyxl`) berisi 3 sheet (`Rekap Presensi`, `Warning (<75%)`, `Log Presensi Detail`).
+- **AI Attendance Insights & Portal Web UI (`app/services/ai_attendance_analyzer.py`, `app/templates/attendance_portal.html`):**
+  - `POST /attendance/ai-insights` (input JSON array `attendance_records`) & `GET /attendance/ai-insights` (langsung dari DB): output structured JSON berisi `summary`, `student_attendance`, `at_risk_students`, `patterns`, `insights`, dan `actions` (early warning `< 75%`, pola hari/jam absen tinggi, rekomendasi konseling & reschedule).
+  - Portal web interaktif di `GET /dosen/attendance` untuk generate QR live, simulasi scan, melihat rekap & download Excel, serta panel AI Attendance Insights.
+- **Seed Demo & Dokumentasi:** `py -3.12 -m app.seed_attendance`, `docs/ADR_007_ATTENDANCE_QR_JWT_GEOLOCATION_AND_AI_INSIGHTS.md`, serta `tests/test_attendance_minggu12.py`.
+
 ---
 
 ## Keputusan Desain Minggu 4
@@ -154,7 +173,7 @@ py -3.12 -m alembic check
 py -3.12 -m uvicorn app.main:app --reload
 ```
 
-Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin, `http://127.0.0.1:8000/dosen/grades` untuk Portal Form Input Nilai & Transkrip PDF Dosen, atau `http://127.0.0.1:8000/keuangan/dashboard` untuk Dashboard Keuangan SPP Real-Time.
+Buka `http://127.0.0.1:8000/docs` untuk mencoba seluruh endpoint lewat Swagger UI, `http://127.0.0.1:8000/admin/conflict-resolver` untuk Conflict Resolver Dashboard Admin, `http://127.0.0.1:8000/dosen/grades` untuk Portal Form Input Nilai & Transkrip PDF Dosen, `http://127.0.0.1:8000/keuangan/dashboard` untuk Dashboard Keuangan SPP Real-Time, atau `http://127.0.0.1:8000/dosen/attendance` untuk Portal Presensi QR Code & AI Insights.
 
 ## 4. Data Referensi (Seed Awal)
 
@@ -180,4 +199,4 @@ db.close()
 py -3.12 -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -v
 ```
 
-Hasil verifikasi terakhir: **195 passed**, total coverage **91.85%** (melebihi syarat minimum 80%).
+Hasil verifikasi terakhir: **204 passed**, total coverage **90.29%** (melebihi syarat minimum 80%).

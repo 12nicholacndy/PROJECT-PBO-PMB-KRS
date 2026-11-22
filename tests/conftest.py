@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, JalurMasuk, ProgramStudi
+from app.services.attendance_qr import reset_scan_rate_limiter
 from app.services.billing_service import reset_email_simulator
 from app.services.schedule_observers import reset_default_schedule_subject
 
@@ -60,6 +61,7 @@ def db():
         Base.metadata.drop_all(bind=test_engine)
         reset_default_schedule_subject()
         reset_email_simulator()
+        reset_scan_rate_limiter()
 
 
 @pytest.fixture()

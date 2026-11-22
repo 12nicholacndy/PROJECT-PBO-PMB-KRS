@@ -70,6 +70,18 @@ class PaymentStatus(str, Enum):
     FAILED = "failed"
 
 
+class AttendanceSessionStatus(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class AttendanceStatus(str, Enum):
+    HADIR = "hadir"
+    TERLAMBAT = "terlambat"
+    ALPHA = "alpha"
+    IZIN = "izin"
+
+
 # Tabel transisi resmi state machine KRS: (state_asal, aktor) -> himpunan state tujuan sah.
 # Minggu 8 menambahkan aktor SISTEM untuk invalidasi KRS terdampak perubahan jadwal.
 KRS_TRANSITIONS: dict[tuple[KRSStatus, KRSAktor], set[KRSStatus]] = {
@@ -734,3 +746,128 @@ class Payment(Base):
 
     billing: Mapped["Billing"] = relationship(back_populates="payments")
     payment_method: Mapped["PaymentMethod"] = relationship(back_populates="payments")
+
+
+class AttendanceSession(Base):
+    """Sesi presensi berbasis QR Code untuk satu pertemuan jadwal kuliah (Minggu 12)."""
+
+    __tablename__ = "attendance_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "jadwal_id", "session_date", name="uq_attendance_session_jadwal_date"
+        ),
+        CheckConstraint("pertemuan_ke >= 1", name="ck_attendance_session_pertemuan_pos"),
+        CheckConstraint(
+            "status IN ('open', 'closed')",
+            name="ck_attendance_session_status",
+        ),
+        CheckConstraint(
+            "radius_meters > 0",
+            name="ck_attendance_session_radius_pos",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    jadwal_id: Mapped[int] = mapped_column(
+        ForeignKey("jadwal.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    pertemuan_ke: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    active_jti: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    session_started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    qr_generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    qr_expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[AttendanceSessionStatus] = mapped_column(
+        SAEnum(
+            AttendanceSessionStatus,
+            name="attendance_session_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=AttendanceSessionStatus.OPEN,
+        server_default=AttendanceSessionStatus.OPEN.value,
+        index=True,
+    )
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    radius_meters: Mapped[float] = mapped_column(
+        Float, nullable=False, default=100.0, server_default="100.0"
+    )
+    require_location: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    created_by: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="dosen", server_default="dosen"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    jadwal: Mapped["Jadwal"] = relationship()
+    records: Mapped[list["AttendanceRecord"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class AttendanceRecord(Base):
+    """Catatan presensi mahasiswa per sesi pertemuan (Minggu 12)."""
+
+    __tablename__ = "attendance_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id", "nim", name="uq_attendance_record_session_nim"
+        ),
+        CheckConstraint(
+            "status IN ('hadir', 'terlambat', 'alpha', 'izin')",
+            name="ck_attendance_record_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("attendance_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    jadwal_id: Mapped[int] = mapped_column(
+        ForeignKey("jadwal.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    nim: Mapped[str] = mapped_column(
+        String(30), ForeignKey("calon_mahasiswa.nim"), nullable=False, index=True
+    )
+    status: Mapped[AttendanceStatus] = mapped_column(
+        SAEnum(
+            AttendanceStatus,
+            name="attendance_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=AttendanceStatus.HADIR,
+        server_default=AttendanceStatus.HADIR.value,
+        index=True,
+    )
+    scanned_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    token_jti: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    distance_meters: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    session: Mapped["AttendanceSession"] = relationship(back_populates="records")
+    jadwal: Mapped["Jadwal"] = relationship()
+    mahasiswa: Mapped["CalonMahasiswa"] = relationship()

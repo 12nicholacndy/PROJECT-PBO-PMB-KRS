@@ -5,11 +5,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.routers.admin_ui import router as admin_ui_router
+from app.routers.attendance import router as attendance_router
 from app.routers.finance import router as finance_router
 from app.routers.grades import router as grades_router
 from app.routers.jadwal import router as jadwal_router
 from app.routers.krs import router as krs_router
 from app.routers.pmb import router as pmb_router
+from app.services.attendance_errors import AttendanceError
 from app.services.billing_scheduler import get_billing_scheduler
 from app.services.finance_errors import FinanceError
 from app.services.grade_errors import GradeError
@@ -31,15 +33,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Sistem Informasi Akademik Mini (PMB, KRS, Jadwal, Nilai & Keuangan SPP)",
+    title="Sistem Informasi Akademik Mini (PMB, KRS, Jadwal, Nilai, Keuangan SPP & Presensi QR)",
     description=(
         "API Modul PMB (Minggu 3–4), Modul KRS dengan State Machine & CSP (Minggu 5–6), "
         "Modul Jadwal & Ruangan dengan Deteksi Bentrok 3D, Observer/Outbox, AI Rescheduler "
         "& iCalendar (Minggu 7–8), Modul Nilai, GPA Calculator, Audit Trail & "
-        "Generator Transkrip PDF (Minggu 9–10), serta Modul Keuangan SPP, APScheduler, "
-        "Payment Webhook, Dashboard Real-Time, Block KRS & AI Financial Report (Minggu 11)"
+        "Generator Transkrip PDF (Minggu 9–10), Modul Keuangan SPP, APScheduler, "
+        "Payment Webhook, Dashboard Real-Time, Block KRS & AI Financial Report (Minggu 11), "
+        "serta Modul Presensi QR Code dengan JWT Time-Based Auth, Geolocation, Rate Limiting, "
+        "Export Excel & AI Attendance Insights (Minggu 12)"
     ),
-    version="2.4.0",
+    version="2.5.0",
     lifespan=lifespan,
 )
 
@@ -102,6 +106,17 @@ async def finance_exception_handler(request: Request, exc: FinanceError):
     )
 
 
+@app.exception_handler(AttendanceError)
+async def attendance_exception_handler(request: Request, exc: AttendanceError):
+    # Polimorfisme: satu handler untuk AttendanceError dan seluruh turunannya
+    # (400 jadwal/lokasi/window, 401 QR expired/replay, 403 bukan kelasnya, 404 not found, 409 duplikat, 429 rate limit).
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.body(),
+        headers=exc.headers(),
+    )
+
+
 @app.get("/", tags=["Informasi"])
 def home():
     return {"message": "Sistem Informasi Akademik Mini berjalan"}
@@ -112,4 +127,5 @@ app.include_router(krs_router)
 app.include_router(jadwal_router)
 app.include_router(grades_router)
 app.include_router(finance_router)
+app.include_router(attendance_router)
 app.include_router(admin_ui_router)
